@@ -24,7 +24,11 @@ import org.osgi.service.component.ComponentContext;
 import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
 import org.osgi.service.component.annotations.Deactivate;
+import org.osgi.service.component.annotations.Reference;
+import org.osgi.service.component.annotations.ReferenceCardinality;
+import org.osgi.service.component.annotations.ReferencePolicy;
 import org.wso2.carbon.identity.application.authentication.framework.ApplicationAuthenticator;
+import org.wso2.carbon.identity.application.mgt.ApplicationManagementService;
 import org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticator;
 
 import java.util.Hashtable;
@@ -59,5 +63,27 @@ public class OrganizationAuthServiceComponent {
         }
     }
 
+    @Reference(
+            name = "identity.application.management.component",
+            service = ApplicationManagementService.class,
+            cardinality = ReferenceCardinality.MANDATORY,
+            policy = ReferencePolicy.DYNAMIC,
+            unbind = "unsetApplicationManagementService"
+    )
+    protected void setApplicationManagementService(ApplicationManagementService applicationManagementService) {
+
+        if (logger.isDebugEnabled()) {
+            logger.debug("Setting the ApplicationManagementService.");
+        }
+        OrganizationAuthDataHolder.getInstance().setApplicationManagementService(applicationManagementService);
+    }
+
+    protected void unsetApplicationManagementService(ApplicationManagementService applicationManagementService) {
+
+        if (logger.isDebugEnabled()) {
+            logger.debug("Unsetting the ApplicationManagementService.");
+        }
+        OrganizationAuthDataHolder.getInstance().setApplicationManagementService(null);
+    }
 }
 

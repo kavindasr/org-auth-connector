@@ -23,10 +23,29 @@ public class OrganizationAuthenticatorConstants {
     public static final String AUTHENTICATOR_NAME = "orgAuthenticator";
     public static final String AUTHENTICATOR_FRIENDLY_NAME = "Organization Authenticator";
     public static final String REDIRECT_URL = "redirectUrl";
-    public static final String KAKAO_AUTH_URL = "https://kauth.kakao.com/oauth/authorize";
-    public static final String KAKAO_TOKEN_URL = "https://kauth.kakao.com/oauth/token";
-    public static final String KAKAO_INFO_URL = "https://kapi.kakao.com/v2/user/me";
-    public static final String KAKAO_OAUTH2_STATE_SUFFIX = ",oauth2";
+
+    // IS tenant-aware endpoint patterns (%s = tenantDomain).
+    public static final String IS_AUTHORIZE_EP_PATTERN = "/t/%s/oauth2/authorize";
+    public static final String IS_TOKEN_EP_PATTERN = "/t/%s/oauth2/token";
+    public static final String IS_USERINFO_EP_PATTERN = "/t/%s/oauth2/userinfo";
+
+    // OAuth2 state suffix appended to the context identifier.
+    public static final String OAUTH2_STATE_SUFFIX = ",oauth2";
+
+    // Request parameter names.
+    public static final String TENANT_DOMAIN_PARAM = "tenantDomain";
+    public static final String SESSION_DATA_KEY_PARAM = "sessionDataKey";
+    public static final String CODE_PARAM = "code";
+    public static final String SCOPE = "openid";
+
+    // Authenticator configuration property keys.
+    public static final String IS_BASE_URL_PROP = "ISBaseUrl";
+    public static final String TENANT_SELECTION_URL_PROP = "TenantSelectionPageUrl";
+
+    // Context property keys for storing resolved tenant values between steps.
+    public static final String CONTEXT_TENANT_DOMAIN = "resolvedTenantDomain";
+    public static final String CONTEXT_RESOLVED_CLIENT_ID = "resolvedClientId";
+    public static final String CONTEXT_RESOLVED_CLIENT_SECRET = "resolvedClientSecret";
 
     private OrganizationAuthenticatorConstants() {
     }
@@ -36,9 +55,13 @@ public class OrganizationAuthenticatorConstants {
      */
     public enum ErrorMessages {
 
-        NO_REGISTERED_IDP_FOR_ISSUER("Kakao-65001", "No registered IdP found for the issuer: %s"),
-        JWT_TOKEN_VALIDATION_FAILED("Kakao-65002", "Error while validating the ID token."),
-        ID_TOKEN_AUD_VALIDATION_FAILED("Kakao-65003", "Invalid audience in the ID token.");
+        NO_REGISTERED_IDP_FOR_ISSUER("ORG-65001", "No registered IdP found for the issuer: %s"),
+        JWT_TOKEN_VALIDATION_FAILED("ORG-65002", "Error while validating the ID token."),
+        ID_TOKEN_AUD_VALIDATION_FAILED("ORG-65003", "Invalid audience in the ID token."),
+        TENANT_DOMAIN_NOT_FOUND("ORG-65004", "Tenant domain not found in the request."),
+        SP_NOT_FOUND_FOR_TENANT("ORG-65005", "No service provider found for tenant: %s"),
+        CLIENT_ID_RESOLUTION_FAILED("ORG-65006", "Failed to resolve client ID for tenant: %s"),
+        TENANT_REDIRECT_FAILED("ORG-65007", "Error while redirecting to tenant login page.");
 
         private final String code;
         private final String message;

@@ -36,6 +36,7 @@
     </scm>
     <modules>
         <module>components/org.wso2.carbon.identity.outbound.organization.auth</module>
+        <module>select-tenant</module>
     </modules>
     <dependencyManagement>
         <dependencies>
@@ -70,6 +71,16 @@
                 <artifactId>mockito-testng</artifactId>
                 <version>${mockito-testng.version}</version>
                 <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.wso2.carbon.identity.framework</groupId>
+                <artifactId>org.wso2.carbon.identity.application.mgt</artifactId>
+                <version>${carbon.identity.framework.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.wso2.carbon</groupId>
+                <artifactId>org.wso2.carbon.utils</artifactId>
+                <version>${carbon.kernel.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -253,6 +264,8 @@
         <maven.surefire.plugin.version>3.2.5</maven.surefire.plugin.version>
         <mockito.version>5.3.1</mockito.version>
         <mockito-testng.version>0.5.2</mockito-testng.version>
+        <carbon.kernel.version>4.10.22</carbon.kernel.version>
+        <carbon.kernel.package.import.version.range>[4.6.0, 5.0.0)</carbon.kernel.package.import.version.range>
         <sonar.coverage.exclusions>
             **/*Exception.java,
             **/*Constants*.java,
