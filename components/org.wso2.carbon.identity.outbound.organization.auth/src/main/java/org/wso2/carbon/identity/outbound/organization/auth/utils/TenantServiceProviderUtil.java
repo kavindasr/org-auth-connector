@@ -39,23 +39,14 @@ public class TenantServiceProviderUtil {
     private TenantServiceProviderUtil() {
     }
 
-    /**
-     * Resolve the OAuth2 client ID for a given tenant domain by looking up the
-     * specified application name in that tenant's application registry.
-     *
-     * @param tenantDomain The tenant domain (e.g., "abc.com").
-     * @param appName      The name of the service provider / application registered in the tenant.
-     * @return The OAuth2 client ID (consumer key) of the application.
-     * @throws Exception if the SP is not found or has no OAuth2 inbound config.
-     */
-    public static String resolveClientId(String tenantDomain, String appName) throws Exception {
+    public static ServiceProvider getServiceProviderFromTenantAndAppName(String tenantDomain, String appName)
+            throws Exception {
 
         ApplicationManagementService appMgtService =
                 OrganizationAuthDataHolder.getInstance().getApplicationManagementService();
-
         if (appMgtService == null) {
             throw new Exception("ApplicationManagementService is not available. " +
-                    "Cannot resolve client ID for tenant: " + tenantDomain);
+                    "Cannot retrieve service provider for tenant: " + tenantDomain);
         }
 
         try {
@@ -66,19 +57,36 @@ public class TenantServiceProviderUtil {
             if (sp == null) {
                 throw new Exception("Service provider '" + appName + "' not found in tenant: " + tenantDomain);
             }
+            return sp;
+        } finally {
+            PrivilegedCarbonContext.endTenantFlow();
+        }
+    }
 
-            InboundAuthenticationConfig inboundAuthConfig = sp.getInboundAuthenticationConfig();
-            if (inboundAuthConfig == null) {
-                throw new Exception("No inbound authentication config found for SP '" + appName +
-                        "' in tenant: " + tenantDomain);
-            }
+    /**
+     * Resolve the OAuth2 client ID for a given tenant domain by looking up the
+     * specified application name in that tenant's application registry.
+     *
+     * @param tenantDomain The tenant domain (e.g., "abc.com").
+     * @param appName      The name of the service provider / application registered in the tenant.
+     * @return The OAuth2 client ID (consumer key) of the application.
+     * @throws Exception if the SP is not found or has no OAuth2 inbound config.
+     */
+    public static String resolveClientId( ApplicationManagementService appMgtService, String tenantDomain,
+                                          String appName) throws Exception {
 
-            InboundAuthenticationRequestConfig[] authRequestConfigs =
-                    inboundAuthConfig.getInboundAuthenticationRequestConfigs();
-            if (authRequestConfigs == null) {
-                throw new Exception("No inbound authentication request configs found for SP '" + appName +
-                        "' in tenant: " + tenantDomain);
-            }
+
+
+        if (appMgtService == null) {
+            throw new Exception("ApplicationManagementService is not available. " +
+                    "Cannot resolve client ID for tenant: " + tenantDomain);
+        }
+
+        ServiceProvider sp = getServiceProviderFromTenantAndAppName(tenantDomain, appName);
+
+        try {
+
+            InboundAuthenticationRequestConfig[] authRequestConfigs = getInboundAuthenticationRequestConfigs(tenantDomain, appName, sp);
 
             for (InboundAuthenticationRequestConfig config : authRequestConfigs) {
                 if (OAUTH2_INBOUND_AUTH_TYPE.equals(config.getInboundAuthType())) {
@@ -96,5 +104,22 @@ public class TenantServiceProviderUtil {
         } finally {
             PrivilegedCarbonContext.endTenantFlow();
         }
+    }
+
+    private static InboundAuthenticationRequestConfig[] getInboundAuthenticationRequestConfigs(String tenantDomain, String appName, ServiceProvider sp) throws Exception {
+
+        InboundAuthenticationConfig inboundAuthConfig = sp.getInboundAuthenticationConfig();
+        if (inboundAuthConfig == null) {
+            throw new Exception("No inbound authentication config found for SP '" + appName +
+                    "' in tenant: " + tenantDomain);
+        }
+
+        InboundAuthenticationRequestConfig[] authRequestConfigs =
+                inboundAuthConfig.getInboundAuthenticationRequestConfigs();
+        if (authRequestConfigs == null) {
+            throw new Exception("No inbound authentication request configs found for SP '" + appName +
+                    "' in tenant: " + tenantDomain);
+        }
+        return authRequestConfigs;
     }
 }

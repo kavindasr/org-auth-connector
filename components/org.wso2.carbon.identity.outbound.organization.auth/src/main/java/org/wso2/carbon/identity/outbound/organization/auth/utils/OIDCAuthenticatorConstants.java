@@ -22,6 +22,7 @@ public class OIDCAuthenticatorConstants {
 
     public static final String ACCESS_TOKEN_PARAM = "accessToken";
     public static final String ID_TOKEN_PARAM = "idToken";
+    public static final String USERINFO_URL = "UserInfoUrl";
 
     private OIDCAuthenticatorConstants() {
 

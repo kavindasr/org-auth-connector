@@ -28,9 +28,16 @@ import org.wso2.carbon.identity.application.authentication.framework.exception.A
 import org.wso2.carbon.identity.application.authentication.framework.exception.AuthenticationFailedException;
 import org.wso2.carbon.identity.application.authentication.framework.exception.LogoutFailedException;
 import org.wso2.carbon.identity.application.authentication.framework.exception.MisconfigurationException;
+import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkUtils;
 import org.wso2.carbon.identity.application.authenticator.oauth2.Oauth2GenericAuthenticator;
 import org.wso2.carbon.identity.application.authenticator.oauth2.Oauth2GenericAuthenticatorConstants;
+import org.wso2.carbon.identity.application.authenticator.oidc.OpenIDConnectAuthenticator;
 import org.wso2.carbon.identity.application.common.model.Property;
+import org.wso2.carbon.identity.application.common.util.IdentityApplicationConstants;
+import org.wso2.carbon.identity.application.mgt.ApplicationManagementService;
+import org.wso2.carbon.identity.oauth.OAuthAdminServiceImpl;
+import org.wso2.carbon.identity.oauth.dto.OAuthConsumerAppDTO;
+import org.wso2.carbon.identity.outbound.organization.auth.internal.OrganizationAuthDataHolder;
 import org.wso2.carbon.identity.outbound.organization.auth.utils.TenantServiceProviderUtil;
 
 import javax.servlet.http.HttpServletRequest;
@@ -43,13 +50,23 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import static org.wso2.carbon.identity.application.authenticator.oidc.OIDCAuthenticatorConstants.CLIENT_ID;
+import static org.wso2.carbon.identity.application.authenticator.oidc.OIDCAuthenticatorConstants.CLIENT_SECRET;
+import static org.wso2.carbon.identity.application.authenticator.oidc.OIDCAuthenticatorConstants.IS_BASIC_AUTH_ENABLED;
+import static org.wso2.carbon.identity.application.authenticator.oidc.OIDCAuthenticatorConstants.IdPConfParams.OIDC_LOGOUT_URL;
+import static org.wso2.carbon.identity.application.authenticator.oidc.OIDCAuthenticatorConstants.OAUTH2_AUTHZ_URL;
+import static org.wso2.carbon.identity.application.authenticator.oidc.OIDCAuthenticatorConstants.OAUTH2_TOKEN_URL;
+
 import static org.wso2.carbon.identity.application.authenticator.oauth2.Oauth2GenericAuthenticatorConstants.CALLBACK_URL;
-import static org.wso2.carbon.identity.application.authenticator.oauth2.Oauth2GenericAuthenticatorConstants.CLIENT_ID;
-import static org.wso2.carbon.identity.application.authenticator.oauth2.Oauth2GenericAuthenticatorConstants.CLIENT_SECRET;
+import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.AMPERSAND_SIGN;
+import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.AUTHENTICATOR_PARAM;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.CODE_PARAM;
+import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.COMMON_SP_NAME;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.CONTEXT_RESOLVED_CLIENT_ID;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.CONTEXT_RESOLVED_CLIENT_SECRET;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.CONTEXT_TENANT_DOMAIN;
+import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.EQUAL_SIGN;
+import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.IDP_PARAMETER;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.IS_AUTHORIZE_EP_PATTERN;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.IS_BASE_URL_PROP;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.IS_TOKEN_EP_PATTERN;
@@ -58,8 +75,9 @@ import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAu
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.SCOPE;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.SESSION_DATA_KEY_PARAM;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.TENANT_DOMAIN_PARAM;
+import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.TENANT_IDENTIFIER;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.TENANT_SELECTION_URL_PROP;
-
+import static org.wso2.carbon.identity.outbound.organization.auth.utils.OIDCAuthenticatorConstants.USERINFO_URL;
 
 /**
  * Organization Authenticator is a federated outbound authenticator that implements
@@ -73,25 +91,65 @@ import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAu
  * </ol>
  * This extends the Oauth2 Generic Authenticator implementation.
  */
-public class OrganizationAuthenticator extends Oauth2GenericAuthenticator {
+public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
 
     private static final long serialVersionUID = 6614257960044886319L;
     private static final Log log = LogFactory.getLog(OrganizationAuthenticator.class);
 
-    /**
-     * Check whether the request can be handled by the authenticator.
-     * Handles requests containing tenantDomain (step 2), authorization code (step 3),
-     * or delegates to parent's canHandle.
-     *
-     * @param request The http servlet request
-     * @return true if the request can be handled by the authenticator.
-     */
+
     @Override
     public boolean canHandle(HttpServletRequest request) {
 
-        return request.getParameter(TENANT_DOMAIN_PARAM) != null
-                || request.getParameter(CODE_PARAM) != null
-                || super.canHandle(request);
+        // Handle logout requests in the super class.
+        if (super.canHandle(request)) {
+            return true;
+        }
+
+        // Handle the tenant selection response with the tenant identifier parameter.
+        String tenantIdentifier = request.getParameter(TENANT_IDENTIFIER);
+        return StringUtils.isNotBlank(tenantIdentifier);
+    }
+
+    @Override
+    protected void initiateAuthenticationRequest(HttpServletRequest request, HttpServletResponse response,
+                                                 AuthenticationContext context) throws AuthenticationFailedException {
+        try {
+
+            Map<String, String> authenticatorProperties = context.getAuthenticatorProperties();
+            ApplicationManagementService appMgtService =
+                    OrganizationAuthDataHolder.getInstance().getApplicationManagementService();
+
+            // Retrieve tenant-specific values stored during step 2.
+            String tenantDomain = (String) context.getProperty(TENANT_DOMAIN_PARAM);
+            String spName = authenticatorProperties.get(COMMON_SP_NAME);
+
+            // Resolve the OAuth2 client ID for the tenant's common SP.
+            String resolvedClientId = null;
+            resolvedClientId = TenantServiceProviderUtil.resolveClientId(appMgtService, tenantDomain, spName);
+
+            OAuthConsumerAppDTO oauthApp = getOAuthAdminService()
+                    .getOAuthApplicationData(resolvedClientId);
+
+            String resolvedClientSecret = oauthApp.getOauthConsumerSecret();
+
+            // Override authenticator properties with tenant-specific values so
+            // the super class uses the correct client_id and endpoints.
+            String isBaseUrl = authenticatorProperties.get(IS_BASE_URL_PROP);
+            authenticatorProperties.put(CLIENT_ID, resolvedClientId);
+            authenticatorProperties.put(CLIENT_SECRET, resolvedClientSecret);
+            authenticatorProperties.put(OAUTH2_AUTHZ_URL, isBaseUrl + String.format(IS_AUTHORIZE_EP_PATTERN, tenantDomain));
+            authenticatorProperties.put(USERINFO_URL,
+                    isBaseUrl + String.format(IS_USERINFO_EP_PATTERN, tenantDomain));
+            authenticatorProperties.put(OAUTH2_TOKEN_URL, isBaseUrl + String.format(IS_TOKEN_EP_PATTERN, tenantDomain));
+            authenticatorProperties.put(CALLBACK_URL, oauthApp.getCallbackUrl());
+
+
+            super.initiateAuthenticationRequest(request, response, context);
+        } catch (Exception e) {
+            String errorMessage = "Error while initiating authentication request.";
+            throw new AuthenticationFailedException(errorMessage, e);
+        }
+
     }
 
     @Override
@@ -107,48 +165,16 @@ public class OrganizationAuthenticator extends Oauth2GenericAuthenticator {
     }
 
     @Override
-    protected String getTokenEndpoint(Map<String, String> authenticatorProperties) {
-
-        // The actual tenant-specific token endpoint is built dynamically in processAuthenticationResponse.
-        // This returns a default fallback based on IS base URL.
-        String isBaseUrl = authenticatorProperties.get(IS_BASE_URL_PROP);
-        return isBaseUrl != null ? isBaseUrl + "/oauth2/token" : null;
-    }
-
-    @Override
-    protected String getAuthorizationServerEndpoint(Map<String, String> authenticatorProperties) {
-
-        // The actual tenant-specific authorize endpoint is built dynamically in process().
-        String isBaseUrl = authenticatorProperties.get(IS_BASE_URL_PROP);
-        return isBaseUrl != null ? isBaseUrl + "/oauth2/authorize" : null;
-    }
-
-    @Override
-    protected String getUserInfoEndpoint(Map<String, String> authenticatorProperties) {
-
-        String isBaseUrl = authenticatorProperties.get(IS_BASE_URL_PROP);
-        return isBaseUrl != null ? isBaseUrl + "/oauth2/userinfo" : null;
-    }
-
-    @Override
     public List<Property> getConfigurationProperties() {
 
         List<Property> configProperties = new ArrayList<>();
 
-        Property clientId = new Property();
-        clientId.setName(CLIENT_ID);
-        clientId.setDisplayName("Client Id");
-        clientId.setRequired(true);
-        clientId.setDescription("Enter default client identifier value (fallback)");
-        configProperties.add(clientId);
-
-        Property clientSecret = new Property();
-        clientSecret.setName(CLIENT_SECRET);
-        clientSecret.setDisplayName("Client Secret");
-        clientSecret.setRequired(true);
-        clientSecret.setConfidential(true);
-        clientSecret.setDescription("Enter default client secret value (fallback)");
-        configProperties.add(clientSecret);
+        Property commonSpName = new Property();
+        commonSpName.setName(COMMON_SP_NAME);
+        commonSpName.setDisplayName("Common Service Provider Name");
+        commonSpName.setRequired(true);
+        commonSpName.setDescription("Enter common service provider name registered in each tenant (e.g., PublisherCommonSP)");
+        configProperties.add(commonSpName);
 
         Property callbackUrl = new Property();
         callbackUrl.setName(CALLBACK_URL);
@@ -191,30 +217,15 @@ public class OrganizationAuthenticator extends Oauth2GenericAuthenticator {
         Map<String, String> authenticatorProperties = context.getAuthenticatorProperties();
 
         try {
-            // ──── STEP 3: Authorization code received from IS tenant login ────
-            if (request.getParameter(CODE_PARAM) != null) {
-                if (log.isDebugEnabled()) {
-                    log.debug("Step 3: Authorization code received. Processing authentication response.");
-                }
-                processAuthenticationResponse(request, response, context);
-                return AuthenticatorFlowStatus.SUCCESS_COMPLETED;
-            }
 
             // ──── STEP 2: Tenant domain received from tenant selection page ────
-            String tenantDomain = request.getParameter(TENANT_DOMAIN_PARAM);
-            if (StringUtils.isNotBlank(tenantDomain)) {
-                if (log.isDebugEnabled()) {
-                    log.debug("Step 2: Tenant domain received: " + tenantDomain +
-                            ". Redirecting to IS tenant login.");
-                }
-                return handleTenantRedirect(request, response, context, tenantDomain, authenticatorProperties);
+            String tenantIdentifier = request.getParameter(TENANT_IDENTIFIER);
+            if (!StringUtils.isNotBlank(tenantIdentifier)) {
+                handleTenantSelection(response, context, authenticatorProperties);
+                return AuthenticatorFlowStatus.INCOMPLETE;
             }
-
-            // ──── STEP 1: Initial request — redirect to tenant selection page ────
-            if (log.isDebugEnabled()) {
-                log.debug("Step 1: Initial request. Redirecting to tenant selection page.");
-            }
-            return handleTenantSelection(response, context, authenticatorProperties);
+            context.setProperty(TENANT_DOMAIN_PARAM, tenantIdentifier);
+            return super.process(request, response, context);
 
         } catch (IOException e) {
             throw new AuthenticationFailedException(
@@ -225,7 +236,7 @@ public class OrganizationAuthenticator extends Oauth2GenericAuthenticator {
     /**
      * Step 1: Redirect to the tenant selection page with the sessionDataKey.
      */
-    private AuthenticatorFlowStatus handleTenantSelection(HttpServletResponse response,
+    private void handleTenantSelection(HttpServletResponse response,
                                                           AuthenticationContext context,
                                                           Map<String, String> authenticatorProperties)
             throws IOException {
@@ -233,63 +244,64 @@ public class OrganizationAuthenticator extends Oauth2GenericAuthenticator {
         String tenantSelectionUrl = authenticatorProperties.get(TENANT_SELECTION_URL_PROP);
         String sessionDataKey = context.getContextIdentifier();
 
-        String redirectUrl = tenantSelectionUrl + "?" + SESSION_DATA_KEY_PARAM + "=" + sessionDataKey;
+        String redirectUrl = tenantSelectionUrl + "?" + SESSION_DATA_KEY_PARAM + "=" + sessionDataKey
+                + "&" + AUTHENTICATOR_PARAM + "=" + getName()
+                + "&" + IDP_PARAMETER + "=" + context.getExternalIdP().getIdPName();
 
         if (log.isDebugEnabled()) {
             log.debug("Redirecting to tenant selection page: " + redirectUrl);
         }
         response.sendRedirect(redirectUrl);
-        return AuthenticatorFlowStatus.INCOMPLETE;
     }
 
-    /**
-     * Step 2: Resolve the client_id for the tenant and redirect to IS /t/{tenant}/oauth2/authorize.
-     */
-    private AuthenticatorFlowStatus handleTenantRedirect(HttpServletRequest request, HttpServletResponse response,
-                                                         AuthenticationContext context, String tenantDomain,
-                                                         Map<String, String> authenticatorProperties)
-            throws AuthenticationFailedException, IOException {
-
-        // Store tenant domain in context for use in step 3.
-        context.setProperty(CONTEXT_TENANT_DOMAIN, tenantDomain);
-
-        // Resolve the client_id for the tenant's application.
-        String resolvedClientId;
-        try {
-            // Use the default client_id property value as the app name hint for lookup.
-            // The app name in each IS tenant should match this configured value.
-            String appName = authenticatorProperties.get(CLIENT_ID);
-            resolvedClientId = TenantServiceProviderUtil.resolveClientId(tenantDomain, appName);
-        } catch (Exception e) {
-            // Fallback: use the configured client_id if resolution fails.
-            log.warn("Failed to resolve client ID for tenant '" + tenantDomain +
-                    "'. Falling back to configured client_id.", e);
-            resolvedClientId = authenticatorProperties.get(CLIENT_ID);
-        }
-
-        // Store resolved credentials in context for step 3.
-        context.setProperty(CONTEXT_RESOLVED_CLIENT_ID, resolvedClientId);
-        context.setProperty(CONTEXT_RESOLVED_CLIENT_SECRET, authenticatorProperties.get(CLIENT_SECRET));
-
-        // Build the tenant-specific authorize URL.
-        String isBaseUrl = authenticatorProperties.get(IS_BASE_URL_PROP);
-        String authorizeEp = isBaseUrl + String.format(IS_AUTHORIZE_EP_PATTERN, tenantDomain);
-        String callbackUrl = authenticatorProperties.get(CALLBACK_URL);
-        String state = context.getContextIdentifier() + OAUTH2_STATE_SUFFIX;
-
-        String redirectUrl = authorizeEp
-                + "?response_type=code"
-                + "&client_id=" + urlEncode(resolvedClientId)
-                + "&redirect_uri=" + urlEncode(callbackUrl)
-                + "&state=" + urlEncode(state)
-                + "&scope=" + urlEncode(SCOPE);
-
-        if (log.isDebugEnabled()) {
-            log.debug("Redirecting to IS tenant login: " + redirectUrl);
-        }
-        response.sendRedirect(redirectUrl);
-        return AuthenticatorFlowStatus.INCOMPLETE;
-    }
+//    /**
+//     * Step 2: Resolve the client_id for the tenant and redirect to IS /t/{tenant}/oauth2/authorize.
+//     */
+//    private AuthenticatorFlowStatus handleTenantRedirect(HttpServletRequest request, HttpServletResponse response,
+//                                                         AuthenticationContext context, String tenantDomain,
+//                                                         Map<String, String> authenticatorProperties)
+//            throws AuthenticationFailedException, IOException {
+//
+//        // Store tenant domain in context for use in step 3.
+//        context.setProperty(CONTEXT_TENANT_DOMAIN, tenantDomain);
+//
+//        // Resolve the client_id for the tenant's application.
+//        String resolvedClientId;
+//        try {
+//            // Use the default client_id property value as the app name hint for lookup.
+//            // The app name in each IS tenant should match this configured value.
+//            String appName = authenticatorProperties.get(CLIENT_ID);
+//            resolvedClientId = TenantServiceProviderUtil.resolveClientId(tenantDomain, appName);
+//        } catch (Exception e) {
+//            // Fallback: use the configured client_id if resolution fails.
+//            log.warn("Failed to resolve client ID for tenant '" + tenantDomain +
+//                    "'. Falling back to configured client_id.", e);
+//            resolvedClientId = authenticatorProperties.get(CLIENT_ID);
+//        }
+//
+//        // Store resolved credentials in context for step 3.
+//        context.setProperty(CONTEXT_RESOLVED_CLIENT_ID, resolvedClientId);
+//        context.setProperty(CONTEXT_RESOLVED_CLIENT_SECRET, authenticatorProperties.get(CLIENT_SECRET));
+//
+//        // Build the tenant-specific authorize URL.
+//        String isBaseUrl = authenticatorProperties.get(IS_BASE_URL_PROP);
+//        String authorizeEp = isBaseUrl + String.format(IS_AUTHORIZE_EP_PATTERN, tenantDomain);
+//        String callbackUrl = authenticatorProperties.get(CALLBACK_URL);
+//        String state = context.getContextIdentifier() + OAUTH2_STATE_SUFFIX;
+//
+//        String redirectUrl = authorizeEp
+//                + "?response_type=code"
+//                + "&client_id=" + urlEncode(resolvedClientId)
+//                + "&redirect_uri=" + urlEncode(callbackUrl)
+//                + "&state=" + urlEncode(state)
+//                + "&scope=" + urlEncode(SCOPE);
+//
+//        if (log.isDebugEnabled()) {
+//            log.debug("Redirecting to IS tenant login: " + redirectUrl);
+//        }
+//        response.sendRedirect(redirectUrl);
+//        return AuthenticatorFlowStatus.INCOMPLETE;
+//    }
 
     /**
      * Step 3: Process the authentication response — exchange the authorization code for a token.
@@ -300,44 +312,46 @@ public class OrganizationAuthenticator extends Oauth2GenericAuthenticator {
 
         try {
             Map<String, String> authenticatorProperties = context.getAuthenticatorProperties();
+            ApplicationManagementService appMgtService =
+                    OrganizationAuthDataHolder.getInstance().getApplicationManagementService();
 
             // Retrieve tenant-specific values stored during step 2.
-            String tenantDomain = (String) context.getProperty(CONTEXT_TENANT_DOMAIN);
-            String clientId = (String) context.getProperty(CONTEXT_RESOLVED_CLIENT_ID);
-            String clientSecret = (String) context.getProperty(CONTEXT_RESOLVED_CLIENT_SECRET);
+            String tenantDomain = (String) context.getProperty(TENANT_DOMAIN_PARAM);
+            String spName = authenticatorProperties.get(COMMON_SP_NAME);
 
-            // Fallback to authenticator properties if context values are not available.
-            if (StringUtils.isBlank(clientId)) {
-                clientId = authenticatorProperties.get(CLIENT_ID);
-            }
-            if (StringUtils.isBlank(clientSecret)) {
-                clientSecret = authenticatorProperties.get(CLIENT_SECRET);
-            }
+            // Resolve the OAuth2 client ID for the tenant's common SP.
+            String resolvedClientId = TenantServiceProviderUtil.resolveClientId(appMgtService, tenantDomain, spName);
 
-            String callbackUrl = authenticatorProperties.get(CALLBACK_URL);
+            OAuthConsumerAppDTO oauthApp = getOAuthAdminService()
+                    .getOAuthApplicationData(resolvedClientId);
+
+            String resolvedClientSecret = oauthApp.getOauthConsumerSecret();
+
+            // Override authenticator properties with tenant-specific values so
+            // the super class uses the correct client_id and endpoints.
             String isBaseUrl = authenticatorProperties.get(IS_BASE_URL_PROP);
+            authenticatorProperties.put(CLIENT_ID, resolvedClientId);
+            authenticatorProperties.put(CLIENT_SECRET, resolvedClientSecret);
+            authenticatorProperties.put(OAUTH2_AUTHZ_URL, isBaseUrl + String.format(IS_AUTHORIZE_EP_PATTERN, tenantDomain));
+            authenticatorProperties.put(USERINFO_URL,
+                    isBaseUrl + String.format(IS_USERINFO_EP_PATTERN, tenantDomain));
+            authenticatorProperties.put(OAUTH2_TOKEN_URL, isBaseUrl + String.format(IS_TOKEN_EP_PATTERN, tenantDomain));
+            authenticatorProperties.put(CALLBACK_URL, oauthApp.getCallbackUrl());
 
-            // Build tenant-specific token endpoint.
-            String tokenEndpoint;
-            if (StringUtils.isNotBlank(tenantDomain)) {
-                tokenEndpoint = isBaseUrl + String.format(IS_TOKEN_EP_PATTERN, tenantDomain);
-            } else {
-                tokenEndpoint = getTokenEndpoint(authenticatorProperties);
+            super.processAuthenticationResponse(request, response, context);
+
+            if (log.isDebugEnabled()) {
+                log.debug("Resolved client ID '" + resolvedClientId + "' for SP '" + spName +
+                        "' in tenant: " + tenantDomain);
             }
 
-            Boolean basicAuthEnabled = Boolean.parseBoolean(authenticatorProperties
-                    .get(Oauth2GenericAuthenticatorConstants.IS_BASIC_AUTH_ENABLED));
-
-            String code = getAuthorizationCode(request);
-            String token = getToken(tokenEndpoint, clientId, clientSecret, code, callbackUrl, basicAuthEnabled);
-
-            Boolean selfContainedTokenEnabled = Boolean.parseBoolean(authenticatorProperties
-                    .get(Oauth2GenericAuthenticatorConstants.SELF_CONTAINED_TOKEN_ENABLED));
-            String userInfo = getUserInfo(selfContainedTokenEnabled, token, authenticatorProperties);
-            buildClaims(context, userInfo);
+            //super.processAuthenticationResponse(request, response, context);
 
         } catch (ApplicationAuthenticatorException | MisconfigurationException e) {
             String errorMessage = "Error while processing authentication response.";
+            throw new AuthenticationFailedException(errorMessage, e);
+        } catch (Exception e) {
+            String errorMessage = "Error while resolving service provider credentials.";
             throw new AuthenticationFailedException(errorMessage, e);
         }
     }
@@ -345,12 +359,18 @@ public class OrganizationAuthenticator extends Oauth2GenericAuthenticator {
     /**
      * URL-encode a string using UTF-8.
      */
-    private String urlEncode(String value) throws AuthenticationFailedException {
+    private String urlEncode(String value) throws UnsupportedEncodingException {
 
-        try {
-            return URLEncoder.encode(value, StandardCharsets.UTF_8.name());
-        } catch (UnsupportedEncodingException e) {
-            throw new AuthenticationFailedException("Error URL encoding value: " + value, e);
-        }
+        return URLEncoder.encode(value, FrameworkUtils.UTF_8);
+    }
+
+    private OAuthAdminServiceImpl getOAuthAdminService() {
+
+        return OrganizationAuthDataHolder.getInstance().getOAuthAdminService();
+    }
+
+    private void addQueryParam(StringBuilder builder, String query, String param) throws UnsupportedEncodingException {
+
+        builder.append(AMPERSAND_SIGN).append(query).append(EQUAL_SIGN).append(urlEncode(param));
     }
 }

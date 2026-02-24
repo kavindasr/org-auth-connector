@@ -19,6 +19,7 @@
 package org.wso2.carbon.identity.outbound.organization.auth.internal;
 
 import org.wso2.carbon.identity.application.mgt.ApplicationManagementService;
+import org.wso2.carbon.identity.oauth.OAuthAdminServiceImpl;
 
 /**
  * Singleton data holder for OSGi service references used by the Organization Authenticator.
@@ -28,6 +29,7 @@ public class OrganizationAuthDataHolder {
     private static final OrganizationAuthDataHolder instance = new OrganizationAuthDataHolder();
 
     private ApplicationManagementService applicationManagementService;
+    private OAuthAdminServiceImpl oAuthAdminService;
 
     private OrganizationAuthDataHolder() {
     }
@@ -46,4 +48,15 @@ public class OrganizationAuthDataHolder {
 
         this.applicationManagementService = applicationManagementService;
     }
+
+    public OAuthAdminServiceImpl getOAuthAdminService() {
+
+        return oAuthAdminService;
+    }
+
+    public void setOAuthAdminService(OAuthAdminServiceImpl oAuthAdminService) {
+
+        this.oAuthAdminService = oAuthAdminService;
+    }
+
 }

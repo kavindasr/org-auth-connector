@@ -34,11 +34,19 @@ public class OrganizationAuthenticatorConstants {
 
     // Request parameter names.
     public static final String TENANT_DOMAIN_PARAM = "tenantDomain";
+    public static final String TENANT_IDENTIFIER = "tenantIdentifier";
     public static final String SESSION_DATA_KEY_PARAM = "sessionDataKey";
+    public static final String AUTHENTICATOR_PARAM = "authenticator";
     public static final String CODE_PARAM = "code";
     public static final String SCOPE = "openid";
 
+    public static final String EQUAL_SIGN = "=";
+    public static final String AMPERSAND_SIGN = "&";
+
+    public static final String IDP_PARAMETER = "idp";
+
     // Authenticator configuration property keys.
+    public static final String COMMON_SP_NAME = "CommonSPName";
     public static final String IS_BASE_URL_PROP = "ISBaseUrl";
     public static final String TENANT_SELECTION_URL_PROP = "TenantSelectionPageUrl";
 
