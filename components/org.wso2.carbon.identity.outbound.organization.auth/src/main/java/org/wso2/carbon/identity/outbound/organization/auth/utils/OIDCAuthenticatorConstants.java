@@ -18,13 +18,13 @@
 
 package org.wso2.carbon.identity.outbound.organization.auth.utils;
 
+/**
+ * OIDC-specific constants used by the Organization Authenticator utilities.
+ */
 public class OIDCAuthenticatorConstants {
 
-    public static final String ACCESS_TOKEN_PARAM = "accessToken";
-    public static final String ID_TOKEN_PARAM = "idToken";
     public static final String USERINFO_URL = "UserInfoUrl";
 
     private OIDCAuthenticatorConstants() {
-
     }
 }

@@ -37,128 +37,138 @@ import org.wso2.carbon.idp.mgt.IdentityProviderManager;
 
 import java.util.List;
 
-public class OIDCTokenValidationUtil {
-    private static final Log log = LogFactory.getLog(OIDCTokenValidationUtil.class);
+/**
+ * Utility class for validating OIDC JWT tokens (audience, issuer, signature).
+ */
+public final class OIDCTokenValidationUtil {
+
+    private static final Log LOG = LogFactory.getLog(OIDCTokenValidationUtil.class);
+
+    private OIDCTokenValidationUtil() {
+    }
 
     /**
-     * Get unique identifier to identify the identity provider.
+     * Get the issuer claim from the JWT claims set.
      *
-     * @param claimsSet claim set available in the logout token.
-     * @return unique idp identifier.
-     * @throws AuthenticationFailedException if there is an issue while getting the unique identifier.
+     * @param claimsSet The JWT claims set.
+     * @return The issuer value.
      */
-    public static String getIssuer(JWTClaimsSet claimsSet) throws AuthenticationFailedException {
+    public static String getIssuer(JWTClaimsSet claimsSet) {
 
         return claimsSet.getIssuer();
     }
 
     /**
-     * Do the aud claim validation according to OIDC back-channel logout specification.
+     * Validate that the audience claim contains the expected token endpoint alias.
      *
-     * @param audienceList - list containing audience values.
-     * @param idp - identity provider.
-     * @param tenantDomain - the tenant domain
-     *
-     * @throws AuthenticationFailedException if none of the audience values matched the tokenEndpoint alias
+     * @param audienceList List of audience values from the JWT.
+     * @param idp          The identity provider.
+     * @param tenantDomain The tenant domain.
+     * @throws AuthenticationFailedException If none of the audience values match the token endpoint alias.
      */
     public static void validateAudience(List<String> audienceList, IdentityProvider idp, String tenantDomain)
             throws AuthenticationFailedException {
 
-        boolean audienceFound = false;
         String tokenEndPointAlias = getTokenEndpointAlias(idp, tenantDomain);
+
         for (String audience : audienceList) {
             if (StringUtils.equals(tokenEndPointAlias, audience)) {
-                if (log.isDebugEnabled()) {
-                    log.debug(tokenEndPointAlias + " of IDP was found in the list of audiences.");
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(tokenEndPointAlias + " of IDP was found in the list of audiences.");
                 }
-                audienceFound = true;
-                break;
+                return;
             }
         }
-        if (!audienceFound) {
-            throw new AuthenticationFailedException (
-                    OIDCErrorConstants.ErrorMessages.JWT_TOKEN_AUD_CLAIM_VALIDATION_FAILED.getCode(),
-                    String.format(OIDCErrorConstants.ErrorMessages.JWT_TOKEN_AUD_CLAIM_VALIDATION_FAILED.getMessage(),
-                            tokenEndPointAlias));
-        }
+
+        throw new AuthenticationFailedException(
+                OIDCErrorConstants.ErrorMessages.JWT_TOKEN_AUD_CLAIM_VALIDATION_FAILED.getCode(),
+                String.format(
+                        OIDCErrorConstants.ErrorMessages.JWT_TOKEN_AUD_CLAIM_VALIDATION_FAILED.getMessage(),
+                        tokenEndPointAlias));
     }
 
     /**
-     * Get token endpoint alias.
+     * Validate the JWT signature against the identity provider's certificate.
      *
-     * @param identityProvider Identity provider
-     * @return token endpoint alias
+     * @param signedJWT        The signed JWT to validate.
+     * @param identityProvider The identity provider whose certificate is used for verification.
+     * @throws AuthenticationFailedException If the signature validation fails.
+     * @throws JOSEException                If there is a JOSE processing error.
+     * @throws IdentityOAuth2Exception       If there is an OAuth2 error during validation.
      */
-    private static String getTokenEndpointAlias(IdentityProvider identityProvider, String tenantDomain) {
-
-        Property oauthTokenURL = null;
-        String tokenEndPointAlias = null;
-        if (IdentityApplicationConstants.RESIDENT_IDP_RESERVED_NAME.equals(
-                identityProvider.getIdentityProviderName())) {
-            try {
-                identityProvider = IdentityProviderManager.getInstance().getResidentIdP(tenantDomain);
-            } catch (IdentityProviderManagementException e) {
-                if (log.isDebugEnabled()) {
-                    log.debug("Error while getting Resident IDP :" + e.getMessage());
-                }
-            }
-            FederatedAuthenticatorConfig[] fedAuthnConfigs =
-                    identityProvider.getFederatedAuthenticatorConfigs();
-            FederatedAuthenticatorConfig oauthAuthenticatorConfig =
-                    IdentityApplicationManagementUtil.getFederatedAuthenticator(fedAuthnConfigs,
-                            IdentityApplicationConstants.Authenticator.OIDC.NAME);
-
-            if (oauthAuthenticatorConfig != null) {
-                oauthTokenURL = IdentityApplicationManagementUtil.getProperty(
-                        oauthAuthenticatorConfig.getProperties(),
-                        IdentityApplicationConstants.Authenticator.OIDC.OAUTH2_TOKEN_URL);
-            }
-            if (oauthTokenURL != null) {
-                tokenEndPointAlias = oauthTokenURL.getValue();
-                if (log.isDebugEnabled()) {
-                    log.debug("Token End Point Alias of Resident IDP :" + tokenEndPointAlias);
-                }
-            }
-        } else {
-            tokenEndPointAlias = identityProvider.getAlias();
-            if (log.isDebugEnabled()) {
-                log.debug("Token End Point Alias of the Federated IDP: " + tokenEndPointAlias);
-            }
-        }
-        return tokenEndPointAlias;
-    }
-
-    /**
-     * Validate the JWT signature.
-     *
-     * @param signedJWT singed JWT.
-     * @param identityProvider identity provider.
-     * @throws JOSEException if there is an issue while verifying the singed JWT.
-     * @throws IdentityOAuth2Exception if there is an issue while validating the signature.
-     */
-    public static void validateSignature(SignedJWT signedJWT,
-                                         IdentityProvider identityProvider) throws JOSEException,
-            IdentityOAuth2Exception , AuthenticationFailedException {
+    public static void validateSignature(SignedJWT signedJWT, IdentityProvider identityProvider)
+            throws AuthenticationFailedException, JOSEException, IdentityOAuth2Exception {
 
         if (!JWTSignatureValidationUtils.validateSignature(signedJWT, identityProvider)) {
-            throw new AuthenticationFailedException(OIDCErrorConstants.ErrorMessages.
-                    JWT_TOKEN_SIGNATURE_VALIDATION_FAILED.getCode(),
+            throw new AuthenticationFailedException(
+                    OIDCErrorConstants.ErrorMessages.JWT_TOKEN_SIGNATURE_VALIDATION_FAILED.getCode(),
                     OIDCErrorConstants.ErrorMessages.JWT_TOKEN_SIGNATURE_VALIDATION_FAILED.getMessage());
         }
     }
 
     /**
-     * Validate the issuer claim.
+     * Validate that the issuer claim is present and non-blank.
      *
-     * @param claimsSet JWT claims set
-     * @throws AuthenticationFailedException if there is an issue while validating the issuer.
+     * @param claimsSet The JWT claims set.
+     * @throws AuthenticationFailedException If the issuer claim is blank or missing.
      */
     public static void validateIssuerClaim(JWTClaimsSet claimsSet) throws AuthenticationFailedException {
 
         if (StringUtils.isBlank(getIssuer(claimsSet))) {
-            throw new AuthenticationFailedException(OIDCErrorConstants.ErrorMessages.
-                    JWT_TOKEN_ISS_CLAIM_VALIDATION_FAILED.getCode(),
+            throw new AuthenticationFailedException(
+                    OIDCErrorConstants.ErrorMessages.JWT_TOKEN_ISS_CLAIM_VALIDATION_FAILED.getCode(),
                     OIDCErrorConstants.ErrorMessages.JWT_TOKEN_ISS_CLAIM_VALIDATION_FAILED.getMessage());
         }
+    }
+
+    /**
+     * Resolve the token endpoint alias for the given identity provider.
+     * For resident IDPs, this is the OAuth2 token URL; for federated IDPs, it is the IDP alias.
+     *
+     * @param identityProvider The identity provider.
+     * @param tenantDomain     The tenant domain.
+     * @return The token endpoint alias, or {@code null} if not resolvable.
+     */
+    private static String getTokenEndpointAlias(IdentityProvider identityProvider, String tenantDomain) {
+
+        if (!IdentityApplicationConstants.RESIDENT_IDP_RESERVED_NAME.equals(
+                identityProvider.getIdentityProviderName())) {
+            String alias = identityProvider.getAlias();
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Token End Point Alias of the Federated IDP: " + alias);
+            }
+            return alias;
+        }
+
+        // Resident IDP: resolve from federated authenticator config.
+        try {
+            identityProvider = IdentityProviderManager.getInstance().getResidentIdP(tenantDomain);
+        } catch (IdentityProviderManagementException e) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Error while getting Resident IDP: " + e.getMessage());
+            }
+            return null;
+        }
+
+        FederatedAuthenticatorConfig oauthConfig =
+                IdentityApplicationManagementUtil.getFederatedAuthenticator(
+                        identityProvider.getFederatedAuthenticatorConfigs(),
+                        IdentityApplicationConstants.Authenticator.OIDC.NAME);
+
+        if (oauthConfig == null) {
+            return null;
+        }
+
+        Property oauthTokenURL = IdentityApplicationManagementUtil.getProperty(
+                oauthConfig.getProperties(),
+                IdentityApplicationConstants.Authenticator.OIDC.OAUTH2_TOKEN_URL);
+
+        if (oauthTokenURL != null) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Token End Point Alias of Resident IDP: " + oauthTokenURL.getValue());
+            }
+            return oauthTokenURL.getValue();
+        }
+        return null;
     }
 }

@@ -18,42 +18,37 @@
 
 package org.wso2.carbon.identity.outbound.organization.auth;
 
+/**
+ * Constants used by the Organization Authenticator.
+ */
 public class OrganizationAuthenticatorConstants {
 
     public static final String AUTHENTICATOR_NAME = "orgAuthenticator";
     public static final String AUTHENTICATOR_FRIENDLY_NAME = "Organization Authenticator";
-    public static final String REDIRECT_URL = "redirectUrl";
 
     // IS tenant-aware endpoint patterns (%s = tenantDomain).
     public static final String IS_AUTHORIZE_EP_PATTERN = "/t/%s/oauth2/authorize";
     public static final String IS_TOKEN_EP_PATTERN = "/t/%s/oauth2/token";
     public static final String IS_USERINFO_EP_PATTERN = "/t/%s/oauth2/userinfo";
 
-    // OAuth2 state suffix appended to the context identifier.
-    public static final String OAUTH2_STATE_SUFFIX = ",oauth2";
-
     // Request parameter names.
     public static final String TENANT_DOMAIN_PARAM = "tenantDomain";
     public static final String TENANT_IDENTIFIER = "tenantIdentifier";
     public static final String SESSION_DATA_KEY_PARAM = "sessionDataKey";
     public static final String AUTHENTICATOR_PARAM = "authenticator";
-    public static final String CODE_PARAM = "code";
-    public static final String SCOPE = "openid";
-
-    public static final String EQUAL_SIGN = "=";
-    public static final String AMPERSAND_SIGN = "&";
-
     public static final String IDP_PARAMETER = "idp";
 
     // Authenticator configuration property keys.
     public static final String COMMON_SP_NAME = "CommonSPName";
     public static final String IS_BASE_URL_PROP = "ISBaseUrl";
     public static final String TENANT_SELECTION_URL_PROP = "TenantSelectionPageUrl";
+    
+    public static final String QUERY_PARAMS = "commonAuthQueryParams";
 
-    // Context property keys for storing resolved tenant values between steps.
-    public static final String CONTEXT_TENANT_DOMAIN = "resolvedTenantDomain";
-    public static final String CONTEXT_RESOLVED_CLIENT_ID = "resolvedClientId";
-    public static final String CONTEXT_RESOLVED_CLIENT_SECRET = "resolvedClientSecret";
+    public static final String EQUAL_SIGN = "=";
+    public static final String AMPERSAND_SIGN = "&";
+
+    public static final String OIDC_CLAIM_DIALECT_URL = "http://wso2.org/oidc/claim";
 
     private OrganizationAuthenticatorConstants() {
     }

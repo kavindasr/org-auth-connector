@@ -18,7 +18,13 @@
 
 package org.wso2.carbon.identity.outbound.organization.auth.utils;
 
-public class OIDCErrorConstants {
+/**
+ * Error constants for OIDC token validation operations.
+ */
+public final class OIDCErrorConstants {
+
+    private OIDCErrorConstants() {
+    }
     /**
      * Relevant error messages and error codes.
      */

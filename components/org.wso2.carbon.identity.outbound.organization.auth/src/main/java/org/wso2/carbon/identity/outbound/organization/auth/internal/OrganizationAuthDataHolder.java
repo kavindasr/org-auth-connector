@@ -19,6 +19,7 @@
 package org.wso2.carbon.identity.outbound.organization.auth.internal;
 
 import org.wso2.carbon.identity.application.mgt.ApplicationManagementService;
+import org.wso2.carbon.identity.claim.metadata.mgt.ClaimMetadataManagementService;
 import org.wso2.carbon.identity.oauth.OAuthAdminServiceImpl;
 
 /**
@@ -30,6 +31,7 @@ public class OrganizationAuthDataHolder {
 
     private ApplicationManagementService applicationManagementService;
     private OAuthAdminServiceImpl oAuthAdminService;
+    private ClaimMetadataManagementService claimMetadataManagementService;
 
     private OrganizationAuthDataHolder() {
     }
@@ -57,6 +59,16 @@ public class OrganizationAuthDataHolder {
     public void setOAuthAdminService(OAuthAdminServiceImpl oAuthAdminService) {
 
         this.oAuthAdminService = oAuthAdminService;
+    }
+
+    public ClaimMetadataManagementService getClaimMetadataManagementService() {
+
+        return claimMetadataManagementService;
+    }
+
+    public void setClaimMetadataManagementService(ClaimMetadataManagementService claimMetadataManagementService) {
+
+        this.claimMetadataManagementService = claimMetadataManagementService;
     }
 
 }
