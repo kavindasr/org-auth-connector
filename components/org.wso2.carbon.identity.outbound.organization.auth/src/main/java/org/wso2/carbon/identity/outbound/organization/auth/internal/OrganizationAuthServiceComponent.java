@@ -29,37 +29,42 @@ import org.osgi.service.component.annotations.ReferenceCardinality;
 import org.osgi.service.component.annotations.ReferencePolicy;
 import org.wso2.carbon.identity.application.authentication.framework.ApplicationAuthenticator;
 import org.wso2.carbon.identity.application.mgt.ApplicationManagementService;
+import org.wso2.carbon.identity.claim.metadata.mgt.ClaimMetadataManagementService;
+import org.wso2.carbon.identity.oauth.OAuthAdminServiceImpl;
 import org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticator;
 
 import java.util.Hashtable;
 
+/**
+ * OSGi Declarative Services component that registers the
+ * {@link OrganizationAuthenticator} and binds required services.
+ */
 @Component(name = "OrganizationAuthServiceComponent", immediate = true)
 public class OrganizationAuthServiceComponent {
 
-    private static final Log logger = LogFactory.getLog(OrganizationAuthServiceComponent.class);
+    private static final Log LOG = LogFactory.getLog(OrganizationAuthServiceComponent.class);
 
     @Activate
-    protected void activate(ComponentContext ctxt) {
+    protected void activate(ComponentContext componentContext) {
 
         try {
             OrganizationAuthenticator organizationAuthenticator = new OrganizationAuthenticator();
             Hashtable<String, String> props = new Hashtable<>();
-            ctxt.getBundleContext().registerService(ApplicationAuthenticator.class.getName(), organizationAuthenticator,
-                    props);
-            if (logger.isDebugEnabled()) {
-                logger.debug("----Organization Authenticator bundle is activated----");
+            componentContext.getBundleContext().registerService(
+                    ApplicationAuthenticator.class.getName(), organizationAuthenticator, props);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Organization Authenticator bundle is activated.");
             }
-
-        } catch (Throwable e) {
-            logger.error("----Error while activating Organization authenticator----", e);
+        } catch (Exception e) {
+            LOG.error("Error while activating Organization Authenticator.", e);
         }
     }
 
     @Deactivate
-    protected void deactivate(ComponentContext ctxt) {
+    protected void deactivate(ComponentContext componentContext) {
 
-        if (logger.isDebugEnabled()) {
-            logger.debug("----Organization Authenticator bundle is deactivated----");
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Organization Authenticator bundle is deactivated.");
         }
     }
 
@@ -72,18 +77,61 @@ public class OrganizationAuthServiceComponent {
     )
     protected void setApplicationManagementService(ApplicationManagementService applicationManagementService) {
 
-        if (logger.isDebugEnabled()) {
-            logger.debug("Setting the ApplicationManagementService.");
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Setting the ApplicationManagementService.");
         }
         OrganizationAuthDataHolder.getInstance().setApplicationManagementService(applicationManagementService);
     }
 
     protected void unsetApplicationManagementService(ApplicationManagementService applicationManagementService) {
 
-        if (logger.isDebugEnabled()) {
-            logger.debug("Unsetting the ApplicationManagementService.");
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Unsetting the ApplicationManagementService.");
         }
         OrganizationAuthDataHolder.getInstance().setApplicationManagementService(null);
+    }
+
+    @Reference(
+            name = "identity.oauth.admin.service",
+            service = OAuthAdminServiceImpl.class,
+            cardinality = ReferenceCardinality.MANDATORY,
+            policy = ReferencePolicy.DYNAMIC,
+            unbind = "unsetOAuthAdminService"
+    )
+    protected void setOAuthAdminService(OAuthAdminServiceImpl oAuthAdminService) {
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Setting the OAuthAdminService.");
+        }
+        OrganizationAuthDataHolder.getInstance().setOAuthAdminService(oAuthAdminService);
+    }
+
+    protected void unsetOAuthAdminService(OAuthAdminServiceImpl oAuthAdminService) {
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Unsetting the OAuthAdminService.");
+        }
+        OrganizationAuthDataHolder.getInstance().setOAuthAdminService(null);
+    }
+
+    @Reference(
+            name = "claim.metadata.management.service",
+            service = ClaimMetadataManagementService.class,
+            cardinality = ReferenceCardinality.MANDATORY,
+            policy = ReferencePolicy.DYNAMIC,
+            unbind = "unsetClaimMetaDataManagementService"
+    )
+    protected void setClaimMetaDataManagementService(ClaimMetadataManagementService claimMetadataManagementService) {
+
+        OrganizationAuthDataHolder.getInstance().setClaimMetadataManagementService(claimMetadataManagementService);
+        LOG.debug("Setting the claim metadata management service.");
+
+    }
+
+    protected void unsetClaimMetaDataManagementService(ClaimMetadataManagementService claimMetadataManagementService) {
+
+        OrganizationAuthDataHolder.getInstance().setClaimMetadataManagementService(null);
+        LOG.debug("Unset the claim metadata management service.");
     }
 }
 
