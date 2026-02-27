@@ -21,6 +21,14 @@
     if (sessionDataKey == null) {
         sessionDataKey = "";
     }
+    String authenticator = request.getParameter("authenticator");
+    if (authenticator == null) {
+        authenticator = "";
+    }
+    String idp = request.getParameter("idp");
+    if (idp == null) {
+        idp = "";
+    }
     // The commonauth endpoint on IS that the form will submit to.
     // This should match the IS host where the authenticator is deployed.
     String commonAuthUrl = "https://localhost:9443/commonauth";
@@ -159,12 +167,14 @@
 
         <form id="tenantForm" action="<%= commonAuthUrl %>" method="GET">
             <input type="hidden" name="sessionDataKey" value="<%= sessionDataKey %>" />
+            <input type="hidden" name="authenticator" value="<%= authenticator %>" />
+            <input type="hidden" name="idp" value="<%= idp %>" />
 
             <div class="form-group">
-                <label for="tenantDomain">Tenant Domain</label>
+                <label for="tenantIdentifier">Tenant Domain</label>
                 <input type="text"
-                       id="tenantDomain"
-                       name="tenantDomain"
+                       id="tenantIdentifier"
+                       name="tenantIdentifier"
                        placeholder="e.g., abc.com"
                        required
                        autocomplete="off"
@@ -178,11 +188,11 @@
 
     <script>
         document.getElementById('tenantForm').addEventListener('submit', function(e) {
-            var tenantDomain = document.getElementById('tenantDomain').value.trim();
+            var tenantIdentifier = document.getElementById('tenantIdentifier').value.trim();
             var errorMsg = document.getElementById('errorMsg');
             var submitBtn = document.getElementById('submitBtn');
 
-            if (!tenantDomain) {
+            if (!tenantIdentifier) {
                 e.preventDefault();
                 errorMsg.style.display = 'block';
                 return;
@@ -191,14 +201,14 @@
             errorMsg.style.display = 'none';
 
             // Update the input value to trimmed version.
-            document.getElementById('tenantDomain').value = tenantDomain;
+            document.getElementById('tenantIdentifier').value = tenantIdentifier;
 
             // Disable button to prevent double submit.
             submitBtn.disabled = true;
             submitBtn.textContent = 'Redirecting...';
         });
 
-        document.getElementById('tenantDomain').addEventListener('input', function() {
+        document.getElementById('tenantIdentifier').addEventListener('input', function() {
             document.getElementById('errorMsg').style.display = 'none';
         });
     </script>
