@@ -25,6 +25,7 @@ import org.wso2.carbon.identity.application.authentication.framework.Authenticat
 import org.wso2.carbon.identity.application.authentication.framework.context.AuthenticationContext;
 import org.wso2.carbon.identity.application.authentication.framework.exception.AuthenticationFailedException;
 import org.wso2.carbon.identity.application.authentication.framework.exception.LogoutFailedException;
+import org.wso2.carbon.identity.application.authentication.framework.model.AuthenticatedUser;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkUtils;
 import org.wso2.carbon.identity.application.authenticator.oidc.OpenIDConnectAuthenticator;
@@ -37,17 +38,20 @@ import org.wso2.carbon.identity.application.mgt.ApplicationManagementService;
 import org.wso2.carbon.identity.claim.metadata.mgt.ClaimMetadataManagementService;
 import org.wso2.carbon.identity.claim.metadata.mgt.exception.ClaimMetadataException;
 import org.wso2.carbon.identity.claim.metadata.mgt.model.Claim;
+import org.wso2.carbon.identity.core.util.IdentityUtil;
 import org.wso2.carbon.identity.oauth.OAuthAdminServiceImpl;
 import org.wso2.carbon.idp.mgt.IdentityProviderManagementException;
 import org.wso2.carbon.idp.mgt.IdentityProviderManager;
 import org.wso2.carbon.identity.oauth.dto.OAuthConsumerAppDTO;
 import org.wso2.carbon.identity.outbound.organization.auth.internal.OrganizationAuthDataHolder;
 import org.wso2.carbon.identity.outbound.organization.auth.utils.TenantServiceProviderUtil;
+import org.wso2.carbon.utils.multitenancy.MultitenantUtils;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -60,6 +64,7 @@ import javax.servlet.http.HttpServletResponse;
 import static org.wso2.carbon.identity.application.authenticator.oidc.OIDCAuthenticatorConstants.CLIENT_ID;
 import static org.wso2.carbon.identity.application.authenticator.oidc.OIDCAuthenticatorConstants.CLIENT_SECRET;
 import static org.wso2.carbon.identity.application.authenticator.oidc.OIDCAuthenticatorConstants.OAUTH2_AUTHZ_URL;
+import static org.wso2.carbon.identity.application.authenticator.oidc.OIDCAuthenticatorConstants.OAUTH2_TOKEN_URL;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.AMPERSAND_SIGN;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.AUTHENTICATOR_PARAM;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.COMMON_SP_NAME;
@@ -70,6 +75,7 @@ import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAu
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.TENANT_DOMAIN_PARAM;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.TENANT_IDENTIFIER;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.TENANT_SELECTION_URL_PROP;
+import static org.wso2.carbon.identity.outbound.organization.auth.utils.OIDCAuthenticatorConstants.USERINFO_URL;
 
 /**
  * Organization Authenticator is a federated outbound authenticator that implements
@@ -207,6 +213,30 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
         try {
             overrideTenantAuthenticatorProperties(context);
             super.processAuthenticationResponse(request, response, context);
+            // AuthenticatedUser user =  context.getSubject();
+            // if (user != null) {
+            //     // 2. Extract or define your username and tenant domain.
+            //     // If the subject identifier is in "user@tenantdomain.com" format, you can use WSO2 utilities:
+            //     String subjectIdentifier = user.getAuthenticatedSubjectIdentifier();
+            //     String tenantDomain = MultitenantUtils.getTenantDomain(subjectIdentifier);
+            //     String userName = MultitenantUtils.getTenantAwareUsername(subjectIdentifier);
+
+            //     // Or extract user store domain if it's formatted as "DOMAIN/user"
+            //     String userStoreDomain = IdentityUtil.extractDomainFromName(userName);
+            //     // String pureUserName = IdentityUtil.extractPureUsername(userName);
+
+            //     // 3. Set the fields on the AuthenticatedUser object
+            //     user.setUserName(userName);
+            //     user.setTenantDomain(tenantDomain);
+            //     user.setUserStoreDomain(userStoreDomain); // Usually good practice to set this as well
+
+            //     // 4. Set the User ID (UUID) if you have it.
+            //     // If you need to look it up, you would query the UserStoreManager using the pureUserName and tenant.
+            //     // user.setUserId("your-resolved-uuid-here");
+
+            //     // 5. Explicitly set the updated user back into the context
+            //     context.setSubject(user);
+            // }
         } catch (AuthenticationFailedException e) {
             throw e;
         } catch (Exception e) {
@@ -277,6 +307,8 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
         authenticatorProperties.put(CLIENT_ID, resolvedClientId);
         authenticatorProperties.put(CLIENT_SECRET, resolvedClientSecret);
         authenticatorProperties.put(OAUTH2_AUTHZ_URL, "https://localhost:9443/oauth2/authorize");
+        authenticatorProperties.put(OAUTH2_TOKEN_URL, "https://localhost:9443/oauth2/token");
+        authenticatorProperties.put(USERINFO_URL, "https://localhost:9443/oauth2/userinfo");
         authenticatorProperties.put(FrameworkConstants.QUERY_PARAMS, getQueryParams(context,
                 claimMappings, tenantDomain));
         // String queryPrams = context.getQueryParams();
@@ -355,6 +387,24 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
         if (StringUtils.isNotBlank(additionalQueryParams)) {
             paramBuilder.append(AMPERSAND_SIGN).append(additionalQueryParams);
         }
+
+        String queryParams = context.getQueryParams();
+        String redirectUrl = Arrays.stream(queryParams.split("&"))
+                .filter(params -> params.startsWith("redirect_uri="))
+                .findFirst()
+                .orElse(null);
+//        String scopeParams = Arrays.stream(queryParams.split("&"))
+//                .filter(params -> params.startsWith("scope="))
+//                .findFirst()
+//                .orElse(null);
+
+        //  This is required for both request and response
+        if (StringUtils.isNotBlank(redirectUrl)) {
+            paramBuilder.append("redirect_uri").append(EQUAL_SIGN).append("https://localhost:9443/commonauth");
+        }
+//        if (StringUtils.isNotBlank(scopeParams) && !isRequestFlow) {
+//            paramBuilder.append(AMPERSAND_SIGN).append(scopeParams);
+//        }
 
         return paramBuilder.toString();
     }
