@@ -75,6 +75,7 @@ import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAu
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.TENANT_DOMAIN_PARAM;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.TENANT_IDENTIFIER;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.TENANT_SELECTION_URL_PROP;
+import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.USER_SELECTED_TENANT_DOMAIN;
 import static org.wso2.carbon.identity.outbound.organization.auth.utils.OIDCAuthenticatorConstants.USERINFO_URL;
 
 /**
@@ -120,7 +121,7 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
                                                  AuthenticationContext context) throws AuthenticationFailedException {
 
         try {
-            overrideTenantAuthenticatorProperties(context);
+            overrideTenantAuthenticatorProperties(context, true);
             super.initiateAuthenticationRequest(request, response, context);
         } catch (AuthenticationFailedException e) {
             throw e;
@@ -192,12 +193,24 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
                 redirectToTenantSelectionPage(response, context);
                 return AuthenticatorFlowStatus.INCOMPLETE;
             }
+            // Store the user-selected tenant domain in a unique property to prevent it from being overridden
+            context.setProperty(USER_SELECTED_TENANT_DOMAIN, tenantIdentifier);
             context.setProperty(TENANT_DOMAIN_PARAM, tenantIdentifier);
             return super.process(request, response, context);
         } catch (IOException e) {
             throw new AuthenticationFailedException(
                     OrganizationAuthenticatorConstants.ErrorMessages.TENANT_REDIRECT_FAILED.getMessage(), e);
         }
+    }
+
+    @Override
+    protected String getScope(String scope, Map<String, String> authenticatorProperties) {
+
+        if (StringUtils.isBlank(scope)) {
+            scope = "openid groups";
+        }
+        // scope = addAppRolesScope(scope);
+        return scope;
     }
 
     /**
@@ -211,32 +224,85 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
                                                  AuthenticationContext context) throws AuthenticationFailedException {
 
         try {
-            overrideTenantAuthenticatorProperties(context);
+            overrideTenantAuthenticatorProperties(context, false);
             super.processAuthenticationResponse(request, response, context);
-            // AuthenticatedUser user =  context.getSubject();
-            // if (user != null) {
-            //     // 2. Extract or define your username and tenant domain.
-            //     // If the subject identifier is in "user@tenantdomain.com" format, you can use WSO2 utilities:
-            //     String subjectIdentifier = user.getAuthenticatedSubjectIdentifier();
-            //     String tenantDomain = MultitenantUtils.getTenantDomain(subjectIdentifier);
-            //     String userName = MultitenantUtils.getTenantAwareUsername(subjectIdentifier);
-
-            //     // Or extract user store domain if it's formatted as "DOMAIN/user"
-            //     String userStoreDomain = IdentityUtil.extractDomainFromName(userName);
-            //     // String pureUserName = IdentityUtil.extractPureUsername(userName);
-
-            //     // 3. Set the fields on the AuthenticatedUser object
-            //     user.setUserName(userName);
-            //     user.setTenantDomain(tenantDomain);
-            //     user.setUserStoreDomain(userStoreDomain); // Usually good practice to set this as well
-
-            //     // 4. Set the User ID (UUID) if you have it.
-            //     // If you need to look it up, you would query the UserStoreManager using the pureUserName and tenant.
-            //     // user.setUserId("your-resolved-uuid-here");
-
-            //     // 5. Explicitly set the updated user back into the context
-            //     context.setSubject(user);
-            // }
+            
+            // Fix tenant domain and user details in the authenticated user object
+            AuthenticatedUser user = context.getSubject();
+            if (user != null) {
+                // Get the tenant domain that was selected by the user during authentication
+                String userSelectedTenantDomain = (String) context.getProperty(USER_SELECTED_TENANT_DOMAIN);
+                String userName = user.getAuthenticatedSubjectIdentifier();
+                
+                if (StringUtils.isNotBlank(userSelectedTenantDomain)) {
+//                    // The subject identifier is a UUID from IS, we need to get the actual username from user attributes
+//                    Map<ClaimMapping, String> userAttributes = user.getUserAttributes();
+//                    String userName = null;
+                    String userStoreDomain = "PRIMARY"; // Default user store
+//
+//                    // Look for username in user attributes - check multiple possible claim URIs
+//                    if (userAttributes != null && !userAttributes.isEmpty()) {
+//                        for (Map.Entry<ClaimMapping, String> entry : userAttributes.entrySet()) {
+//                            ClaimMapping claimMapping = entry.getKey();
+//                            String claimUri = claimMapping.getRemoteClaim() != null ?
+//                                    claimMapping.getRemoteClaim().getClaimUri() : null;
+//
+//                            if (LOG.isDebugEnabled()) {
+//                                LOG.debug("Checking claim: " + claimUri + " = " + entry.getValue());
+//                            }
+//
+//                            // Check for username in various claim formats
+//                            if (claimUri != null && ("http://wso2.org/claims/username".equals(claimUri) ||
+//                                    "username".equals(claimUri) ||
+//                                    "preferred_username".equals(claimUri))) {
+//                                userName = entry.getValue();
+//                                if (LOG.isDebugEnabled()) {
+//                                    LOG.debug("Found username from claim '" + claimUri + "': " + userName);
+//                                }
+//                                break;
+//                            }
+//                        }
+//                    }
+                    
+                    // If username still not found, use the subject identifier (UUID) as fallback
+                    if (StringUtils.isBlank(userName)) {
+                        String subjectIdentifier = user.getAuthenticatedSubjectIdentifier();
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Username not found in claims, using subject identifier: " + subjectIdentifier);
+                        }
+                        userName = subjectIdentifier;
+                    }
+                    
+                    // Extract user store domain if present (format: DOMAIN/username)
+                    if (userName != null && userName.contains("/")) {
+                        userStoreDomain = IdentityUtil.extractDomainFromName(userName);
+                        userName = MultitenantUtils.getTenantAwareUsername(userName);
+                    }
+                    
+                    // Set all required fields on the AuthenticatedUser object
+                    user.setUserName(userName);
+                    user.setTenantDomain(userSelectedTenantDomain);
+                    user.setUserStoreDomain(userStoreDomain);
+                    
+                    // Update the authenticated subject identifier to include tenant domain
+                    String fullyQualifiedUsername = userName;
+                    if (!fullyQualifiedUsername.contains("@")) {
+                        fullyQualifiedUsername = userName + "@" + userSelectedTenantDomain;
+                    }
+                    user.setAuthenticatedSubjectIdentifier(fullyQualifiedUsername);
+                    
+                    // Set the updated user back into the context
+                    context.setSubject(user);
+                    
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Updated AuthenticatedUser: username=" + userName + ", tenantDomain=" + 
+                                userSelectedTenantDomain + ", userStoreDomain=" + userStoreDomain + 
+                                ", subjectIdentifier=" + fullyQualifiedUsername);
+                    }
+                } else {
+                    LOG.warn("User selected tenant domain not found in context. User may be authenticated in wrong tenant.");
+                }
+            }
         } catch (AuthenticationFailedException e) {
             throw e;
         } catch (Exception e) {
@@ -286,13 +352,18 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
      * @param context The current authentication context.
      * @throws Exception If the service provider or OAuth app cannot be resolved.
      */
-    private void overrideTenantAuthenticatorProperties(AuthenticationContext context) throws Exception {
+    private void overrideTenantAuthenticatorProperties(AuthenticationContext context, Boolean isRequestFlow) throws Exception {
 
         Map<String, String> authenticatorProperties = context.getAuthenticatorProperties();
         ApplicationManagementService appMgtService =
                 OrganizationAuthDataHolder.getInstance().getApplicationManagementService();
 
-        String tenantDomain = (String) context.getProperty(TENANT_DOMAIN_PARAM);
+        // Get the user-selected tenant domain from the unique property
+        String tenantDomain = (String) context.getProperty(USER_SELECTED_TENANT_DOMAIN);
+        if (StringUtils.isBlank(tenantDomain)) {
+            // Fallback to TENANT_DOMAIN_PARAM if USER_SELECTED_TENANT_DOMAIN is not set
+            tenantDomain = (String) context.getProperty(TENANT_DOMAIN_PARAM);
+        }
         String spName = authenticatorProperties.get(COMMON_SP_NAME);
 
         ServiceProvider sharedApplication = TenantServiceProviderUtil.getServiceProvider(appMgtService, tenantDomain, spName);
@@ -311,6 +382,9 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
         authenticatorProperties.put(USERINFO_URL, "https://localhost:9443/oauth2/userinfo");
         authenticatorProperties.put(FrameworkConstants.QUERY_PARAMS, getQueryParams(context,
                 claimMappings, tenantDomain));
+        //if (!isRequestFlow) {
+            authenticatorProperties.put("Scopes", getScopes(context));
+        //}
         // String queryPrams = context.getQueryParams();
         // String filteredQueryParams = Arrays.stream(queryPrams.split("&"))
         //         .filter(param -> !param.startsWith("client_id="))
@@ -324,8 +398,8 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
 //        authenticatorProperties.put(OAUTH2_TOKEN_URL,
 //                isBaseUrl + String.format(IS_TOKEN_EP_PATTERN, tenantDomain));
 //        authenticatorProperties.put(CALLBACK_URL, oauthApp.getCallbackUrl());
-//        authenticatorProperties.put("callbackUrl", "https://localhost:9443/publisher/services/auth/callback/login");
-        authenticatorProperties.put("callbackUrl", "https://localhost:9443/commonauth");
+        authenticatorProperties.put("callbackUrl", "https://localhost:9443/publisher/services/auth/callback/login");
+//        authenticatorProperties.put("callbackUrl", "https://localhost:9443/commonauth");
 
 
         if (LOG.isDebugEnabled()) {
@@ -342,6 +416,27 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
     private OAuthAdminServiceImpl getOAuthAdminService() {
 
         return OrganizationAuthDataHolder.getInstance().getOAuthAdminService();
+    }
+
+    private String getScopes(AuthenticationContext context) {
+
+        String queryPrams = context.getQueryParams();
+        String scopeParams = Arrays.stream(queryPrams.split("&"))
+                .filter(param -> param.startsWith("scope="))
+                .findFirst()
+                .orElse(null);
+        if (StringUtils.isNotBlank(scopeParams)) {
+            try {
+                // Extract the scope value (remove "scope=" prefix)
+                String scopeValue = scopeParams.substring("scope=".length());
+                // URL decode the scope value (converts %3A to : and + to space)
+                return java.net.URLDecoder.decode(scopeValue, "UTF-8");
+            } catch (UnsupportedEncodingException e) {
+                LOG.error("Error decoding scope parameter, returning original value", e);
+                return scopeParams.substring("scope=".length());
+            }
+        }
+        return null;
     }
 
     /**
@@ -393,18 +488,12 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
                 .filter(params -> params.startsWith("redirect_uri="))
                 .findFirst()
                 .orElse(null);
-//        String scopeParams = Arrays.stream(queryParams.split("&"))
-//                .filter(params -> params.startsWith("scope="))
-//                .findFirst()
-//                .orElse(null);
 
         //  This is required for both request and response
         if (StringUtils.isNotBlank(redirectUrl)) {
             paramBuilder.append("redirect_uri").append(EQUAL_SIGN).append("https://localhost:9443/commonauth");
+//            paramBuilder.append("redirect_uri").append(EQUAL_SIGN).append("https://localhost:9443/publisher/services/auth/callback/login");
         }
-//        if (StringUtils.isNotBlank(scopeParams) && !isRequestFlow) {
-//            paramBuilder.append(AMPERSAND_SIGN).append(scopeParams);
-//        }
 
         return paramBuilder.toString();
     }

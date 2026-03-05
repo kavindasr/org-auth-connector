@@ -37,6 +37,9 @@ public class OrganizationAuthenticatorConstants {
     public static final String SESSION_DATA_KEY_PARAM = "sessionDataKey";
     public static final String AUTHENTICATOR_PARAM = "authenticator";
     public static final String IDP_PARAMETER = "idp";
+    
+    // Context property to store the user-selected target tenant domain
+    public static final String USER_SELECTED_TENANT_DOMAIN = "ORG_AUTH_USER_SELECTED_TENANT_DOMAIN";
 
     // Authenticator configuration property keys.
     public static final String COMMON_SP_NAME = "CommonSPName";
