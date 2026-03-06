@@ -38,7 +38,6 @@ import org.wso2.carbon.identity.application.common.util.IdentityApplicationConst
 import org.wso2.carbon.identity.application.mgt.ApplicationManagementService;
 import org.wso2.carbon.identity.claim.metadata.mgt.ClaimMetadataManagementService;
 import org.wso2.carbon.identity.claim.metadata.mgt.exception.ClaimMetadataException;
-import org.wso2.carbon.identity.claim.metadata.mgt.model.Claim;
 import org.wso2.carbon.identity.core.util.IdentityUtil;
 import org.wso2.carbon.identity.oauth.OAuthAdminServiceImpl;
 import org.wso2.carbon.idp.mgt.IdentityProviderManagementException;
@@ -72,7 +71,6 @@ import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAu
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.COMMON_SP_NAME;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.EQUAL_SIGN;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.IDP_PARAMETER;
-import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.OIDC_CLAIM_DIALECT_URL;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.SESSION_DATA_KEY_PARAM;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.TENANT_DOMAIN_PARAM;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.TENANT_IDENTIFIER;
@@ -190,7 +188,6 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
             if (parameterMap != null && request.getParameterMap().containsKey("code")) {
                 // This is the callback from IS with the auth code, proceed with token exchange and user info retrieval.
                 return super.process(request, response, context);
-                //return AuthenticatorFlowStatus.INCOMPLETE;
             }
             String tenantIdentifier = request.getParameter(TENANT_IDENTIFIER);
             if (StringUtils.isBlank(tenantIdentifier)) {
@@ -213,7 +210,6 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
         if (StringUtils.isBlank(scope)) {
             scope = "openid groups";
         }
-        // scope = addAppRolesScope(scope);
         return scope;
     }
 
@@ -239,35 +235,8 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
                 String userName = user.getAuthenticatedSubjectIdentifier();
                 
                 if (StringUtils.isNotBlank(userSelectedTenantDomain)) {
-//                    // The subject identifier is a UUID from IS, we need to get the actual username from user attributes
-//                    Map<ClaimMapping, String> userAttributes = user.getUserAttributes();
-//                    String userName = null;
-                    String userStoreDomain = "PRIMARY"; // Default user store
-//
-//                    // Look for username in user attributes - check multiple possible claim URIs
-//                    if (userAttributes != null && !userAttributes.isEmpty()) {
-//                        for (Map.Entry<ClaimMapping, String> entry : userAttributes.entrySet()) {
-//                            ClaimMapping claimMapping = entry.getKey();
-//                            String claimUri = claimMapping.getRemoteClaim() != null ?
-//                                    claimMapping.getRemoteClaim().getClaimUri() : null;
-//
-//                            if (LOG.isDebugEnabled()) {
-//                                LOG.debug("Checking claim: " + claimUri + " = " + entry.getValue());
-//                            }
-//
-//                            // Check for username in various claim formats
-//                            if (claimUri != null && ("http://wso2.org/claims/username".equals(claimUri) ||
-//                                    "username".equals(claimUri) ||
-//                                    "preferred_username".equals(claimUri))) {
-//                                userName = entry.getValue();
-//                                if (LOG.isDebugEnabled()) {
-//                                    LOG.debug("Found username from claim '" + claimUri + "': " + userName);
-//                                }
-//                                break;
-//                            }
-//                        }
-//                    }
-                    
+                    String userStoreDomain = "PRIMARY";
+
                     // If username still not found, use the subject identifier (UUID) as fallback
                     if (StringUtils.isBlank(userName)) {
                         String subjectIdentifier = user.getAuthenticatedSubjectIdentifier();
@@ -386,22 +355,7 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
         authenticatorProperties.put(USERINFO_URL, "https://localhost:9443/oauth2/userinfo");
         authenticatorProperties.put(FrameworkConstants.QUERY_PARAMS, getQueryParams(context,
                 claimMappings, tenantDomain));
-        //if (!isRequestFlow) {
-            authenticatorProperties.put("Scopes", getScopes(context));
-        //}
-        // String queryPrams = context.getQueryParams();
-        // String filteredQueryParams = Arrays.stream(queryPrams.split("&"))
-        //         .filter(param -> !param.startsWith("client_id="))
-        //         .collect(Collectors.joining("&"));
-        // authenticatorProperties.put(QUERY_PARAMS,filteredQueryParams);
-
-//        authenticatorProperties.put(OAUTH2_AUTHZ_URL,
-//                isBaseUrl + String.format(IS_AUTHORIZE_EP_PATTERN, tenantDomain));
-//        authenticatorProperties.put(USERINFO_URL,
-//                isBaseUrl + String.format(IS_USERINFO_EP_PATTERN, tenantDomain));
-//        authenticatorProperties.put(OAUTH2_TOKEN_URL,
-//                isBaseUrl + String.format(IS_TOKEN_EP_PATTERN, tenantDomain));
-//        authenticatorProperties.put(CALLBACK_URL, oauthApp.getCallbackUrl());
+        authenticatorProperties.put("Scopes", getScopes(context));
         authenticatorProperties.put("callbackUrl", "https://localhost:9443/publisher/services/auth/callback/login");
 //        authenticatorProperties.put("callbackUrl", "https://localhost:9443/commonauth");
 
@@ -457,30 +411,6 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
             throws UnsupportedEncodingException, ClaimMetadataException {
 
         StringBuilder paramBuilder = new StringBuilder();
-//        // Set claims query param based on the application's requested attributes.
-//        paramBuilder.append(getRequestedClaims(claimMappings, tenantDomain));
-
-//        String discoveryInput = (String) context.getProperty(ORG_DISCOVERY_PARAMETER);
-//        if (StringUtils.isNotBlank(discoveryInput)) {
-//            paramBuilder.append(AMPERSAND_SIGN).append(LOGIN_HINT_PARAMETER).append(EQUAL_SIGN).append(discoveryInput);
-//        }
-//
-//        if (Boolean.parseBoolean((String) context.getProperty(FrameworkConstants.IS_API_BASED))) {
-//            paramBuilder.append(AMPERSAND_SIGN).append(Constants.RESPONSE_MODE).append(EQUAL_SIGN)
-//                    .append(Constants.DIRECT);
-//        }
-//
-//        if (context.getProperty(SELF_REGISTRATION_PARAMETER) != null) {
-//            paramBuilder.append(AMPERSAND_SIGN).append(SELF_REGISTRATION_PARAMETER).append(EQUAL_SIGN)
-//                    .append(context.getProperty(SELF_REGISTRATION_PARAMETER));
-//
-//            // Used to auto complete the username in self-registration page.
-//            if (context.getProperty(ORG_DISCOVERY_PARAMETER) != null &&
-//                    EMAIL_DOMAIN_DISCOVERY_TYPE.equals(context.getProperty(ORGANIZATION_DISCOVERY_TYPE))) {
-//                paramBuilder.append(AMPERSAND_SIGN).append(USERNAME_PARAMETER).append(EQUAL_SIGN)
-//                        .append(context.getProperty(ORG_DISCOVERY_PARAMETER));
-//            }
-//        }
 
         String additionalQueryParams = resolveAdditionalQueryParams(context);
         if (StringUtils.isNotBlank(additionalQueryParams)) {
@@ -493,10 +423,8 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
                 .findFirst()
                 .orElse(null);
 
-        //  This is required for both request and response
         if (StringUtils.isNotBlank(redirectUrl)) {
             paramBuilder.append("redirect_uri").append(EQUAL_SIGN).append("https://localhost:9443/commonauth");
-//            paramBuilder.append("redirect_uri").append(EQUAL_SIGN).append("https://localhost:9443/publisher/services/auth/callback/login");
         }
 
         return paramBuilder.toString();
@@ -504,7 +432,7 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
 
     private String resolveAdditionalQueryParams(AuthenticationContext context) {
 
-        Map<String, String> runtimeParams =  getRuntimeParams(context);
+        Map<String, String> runtimeParams = getRuntimeParams(context);
         String additionalQueryParams = runtimeParams.get(SSO_ADDITIONAL_PARAMS);
         if (StringUtils.isBlank(additionalQueryParams)) {
             return StringUtils.EMPTY;
@@ -513,30 +441,6 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
         additionalQueryParams = handleRequestParams(context, additionalQueryParams);
         return additionalQueryParams;
     }
-
-//    private String getRequestedClaims(ClaimMapping[] claimMappings, String tenantDomain) throws ClaimMetadataException {
-//
-//        if (claimMappings != null && claimMappings.length > 0) {
-//            StringBuilder paramBuilder = new StringBuilder("&claims={\"userinfo\":{");
-//            for (ClaimMapping claimMapping : claimMappings) {
-//                String oidcClaim = StringUtils.EMPTY;
-//                List<Claim> claims = getClaimManager().getMappedExternalClaimsForLocalClaim(
-//                        claimMapping.getLocalClaim().getClaimUri(), tenantDomain);
-//                if (claims != null) {
-//                    for (Claim claim : claims) {
-//                        if (OIDC_CLAIM_DIALECT_URL.equals(claim.getClaimDialectURI())) {
-//                            oidcClaim = String.format("\"%s\":{\"essential\": true},", claim.getClaimURI());
-//                            paramBuilder.append(oidcClaim);
-//                        }
-//                    }
-//                }
-//            }
-//            paramBuilder.deleteCharAt(paramBuilder.length() - 1);
-//            paramBuilder.append("}}");
-//            return paramBuilder.toString();
-//        }
-//        return StringUtils.EMPTY;
-//    }
 
     private String handleAuthParams(Map<String, String> runtimeParams, String queryString) {
 
