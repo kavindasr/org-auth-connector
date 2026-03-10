@@ -75,12 +75,12 @@ import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAu
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.TENANT_DOMAIN_PARAM;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.TENANT_IDENTIFIER;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.TENANT_SELECTION_URL_PROP;
+import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.USERINFO_URL;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.USER_SELECTED_TENANT_DOMAIN;
-import static org.wso2.carbon.identity.outbound.organization.auth.utils.OIDCAuthenticatorConstants.USERINFO_URL;
 
 /**
  * Organization Authenticator is a federated outbound authenticator that implements
- * tenant-aware SSO for the WSO2 API Manager Publisher portal.
+ * tenant-aware SSO for the WSO2 API Manager.
  * <p>
  * The authenticator implements a multi-step flow:
  * <ol>
@@ -178,8 +178,9 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
             LogoutFailedException {
 
         if (context.isLogoutRequest()) {
-            context.getAuthenticatorProperties().put(IdentityApplicationConstants.OAuth2.CALLBACK_URL, "https://localhost:9443/commonauth");
-            context.getAuthenticatorProperties().put(OIDC_LOGOUT_URL, "https://localhost:9443/oidc/logout");
+            String serverBaseURL = getServerBaseURL();
+            context.getAuthenticatorProperties().put(IdentityApplicationConstants.OAuth2.CALLBACK_URL, serverBaseURL + "/commonauth");
+            context.getAuthenticatorProperties().put(OIDC_LOGOUT_URL, serverBaseURL + "/oidc/logout");
             return super.process(request, response, context);
         }
 
@@ -348,16 +349,18 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
         // Get claim mappings from the federated IDP configuration instead of SP's claim config
         ClaimMapping[] claimMappings = getFederatedIdpClaimMappings(sharedApplication, tenantDomain);
 
+        String serverBaseURL = getServerBaseURL();
+
         authenticatorProperties.put(CLIENT_ID, resolvedClientId);
         authenticatorProperties.put(CLIENT_SECRET, resolvedClientSecret);
-        authenticatorProperties.put(OAUTH2_AUTHZ_URL, "https://localhost:9443/oauth2/authorize");
-        authenticatorProperties.put(OAUTH2_TOKEN_URL, "https://localhost:9443/oauth2/token");
-        authenticatorProperties.put(USERINFO_URL, "https://localhost:9443/oauth2/userinfo");
+        authenticatorProperties.put(OAUTH2_AUTHZ_URL, serverBaseURL + "/oauth2/authorize");
+        authenticatorProperties.put(OAUTH2_TOKEN_URL, serverBaseURL + "/oauth2/token");
+        authenticatorProperties.put(USERINFO_URL, serverBaseURL + "/oauth2/userinfo");
         authenticatorProperties.put(FrameworkConstants.QUERY_PARAMS, getQueryParams(context,
                 claimMappings, tenantDomain));
         authenticatorProperties.put("Scopes", getScopes(context));
-        authenticatorProperties.put("callbackUrl", "https://localhost:9443/publisher/services/auth/callback/login");
-//        authenticatorProperties.put("callbackUrl", "https://localhost:9443/commonauth");
+        // Dynamically resolve the callback URL based on the original redirect_uri (supports publisher/devportal/admin)
+        authenticatorProperties.put("callbackUrl", resolveCallbackUrl(context));
 
 
         if (LOG.isDebugEnabled()) {
@@ -374,6 +377,77 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
     private OAuthAdminServiceImpl getOAuthAdminService() {
 
         return OrganizationAuthDataHolder.getInstance().getOAuthAdminService();
+    }
+
+    /**
+     * Dynamically resolves the server base URL (e.g., https://localhost:9443) from
+     * the Identity Server configuration instead of using hardcoded values.
+     *
+     * @return The server base URL.
+     */
+    private String getServerBaseURL() {
+
+        String serverURL = IdentityUtil.getServerURL("", true, true);
+        // Remove any trailing slash
+        if (serverURL.endsWith("/")) {
+            serverURL = serverURL.substring(0, serverURL.length() - 1);
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Resolved server base URL: " + serverURL);
+        }
+        return serverURL;
+    }
+
+    /**
+     * Dynamically determines the callback URL based on the original redirect_uri from the
+     * authorization request. This supports both APIM Publisher and DevPortal authentication flows.
+     * <p>
+     * The method extracts the original redirect_uri parameter and determines the appropriate
+     * callback URL path based on whether it's a publisher or devportal request.
+     *
+     * @param context The authentication context containing the original query parameters.
+     * @return The appropriate callback URL (e.g., /publisher/services/auth/callback/login or /devportal/services/auth/callback/login).
+     */
+    private String resolveCallbackUrl(AuthenticationContext context) {
+
+        String serverBaseURL = getServerBaseURL();
+        String defaultCallbackUrl = serverBaseURL + "/commonauth";
+
+        try {
+            String queryParams = context.getQueryParams();
+            if (StringUtils.isBlank(queryParams)) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("No query parameters found, using default callback URL: " + defaultCallbackUrl);
+                }
+                return defaultCallbackUrl;
+            }
+
+            // Extract the original redirect_uri from the query parameters
+            String redirectUriParam = Arrays.stream(queryParams.split("&"))
+                    .filter(param -> param.startsWith("redirect_uri="))
+                    .findFirst()
+                    .orElse(null);
+
+            if (StringUtils.isBlank(redirectUriParam)) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("No redirect_uri parameter found, using default callback URL: " + defaultCallbackUrl);
+                }
+                return defaultCallbackUrl;
+            }
+
+            // Extract the redirect URI value and decode it
+            String redirectUri = redirectUriParam.substring("redirect_uri=".length());
+            String callbackUrl = java.net.URLDecoder.decode(redirectUri, "UTF-8");
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Original redirect_uri: " + callbackUrl);
+            }
+            return callbackUrl;
+
+        } catch (Exception e) {
+            LOG.error("Error resolving callback URL, using default: " + defaultCallbackUrl, e);
+            return defaultCallbackUrl;
+        }
     }
 
     private String getScopes(AuthenticationContext context) {
@@ -424,7 +498,8 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
                 .orElse(null);
 
         if (StringUtils.isNotBlank(redirectUrl)) {
-            paramBuilder.append("redirect_uri").append(EQUAL_SIGN).append("https://localhost:9443/commonauth");
+            String serverBaseURL = getServerBaseURL();
+            paramBuilder.append("redirect_uri").append(EQUAL_SIGN).append(serverBaseURL + "/commonauth");
         }
 
         return paramBuilder.toString();

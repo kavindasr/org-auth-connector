@@ -29,9 +29,14 @@
     if (idp == null) {
         idp = "";
     }
-    // The commonauth endpoint on IS that the form will submit to.
-    // This should match the IS host where the authenticator is deployed.
-    String commonAuthUrl = "https://localhost:9443/commonauth";
+    // Dynamically resolve the commonauth endpoint URL from the request properties
+    // instead of hardcoding it. This makes the app work across different environments.
+    String scheme = request.getScheme();
+    String serverName = request.getServerName();
+    int serverPort = request.getServerPort();
+    String portStr = (serverPort == 80 && "http".equals(scheme)) ||
+                     (serverPort == 443 && "https".equals(scheme)) ? "" : ":" + serverPort;
+    String commonAuthUrl = scheme + "://" + serverName + portStr + "/commonauth";
 %>
 <!DOCTYPE html>
 <html lang="en">

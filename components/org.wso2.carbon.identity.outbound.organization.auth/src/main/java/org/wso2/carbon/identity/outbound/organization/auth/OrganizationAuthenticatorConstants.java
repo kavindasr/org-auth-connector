@@ -26,11 +26,6 @@ public class OrganizationAuthenticatorConstants {
     public static final String AUTHENTICATOR_NAME = "orgAuthenticator";
     public static final String AUTHENTICATOR_FRIENDLY_NAME = "Organization Authenticator";
 
-    // IS tenant-aware endpoint patterns (%s = tenantDomain).
-    public static final String IS_AUTHORIZE_EP_PATTERN = "/t/%s/oauth2/authorize";
-    public static final String IS_TOKEN_EP_PATTERN = "/t/%s/oauth2/token";
-    public static final String IS_USERINFO_EP_PATTERN = "/t/%s/oauth2/userinfo";
-
     // Request parameter names.
     public static final String TENANT_DOMAIN_PARAM = "tenantDomain";
     public static final String TENANT_IDENTIFIER = "tenantIdentifier";
@@ -51,7 +46,8 @@ public class OrganizationAuthenticatorConstants {
     public static final String EQUAL_SIGN = "=";
     public static final String AMPERSAND_SIGN = "&";
 
-    public static final String OIDC_CLAIM_DIALECT_URL = "http://wso2.org/oidc/claim";
+    // OIDC Authenticator Constants
+    public static final String USERINFO_URL = "UserInfoUrl";
 
     private OrganizationAuthenticatorConstants() {
     }
