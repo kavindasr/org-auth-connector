@@ -21,6 +21,7 @@ package org.wso2.carbon.identity.outbound.organization.auth;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.json.JSONObject;
 import org.wso2.carbon.identity.application.authentication.framework.AuthenticatorFlowStatus;
 import org.wso2.carbon.identity.application.authentication.framework.context.AuthenticationContext;
 import org.wso2.carbon.identity.application.authentication.framework.exception.AuthenticationFailedException;
@@ -29,6 +30,7 @@ import org.wso2.carbon.identity.application.authentication.framework.model.Authe
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkUtils;
 import org.wso2.carbon.identity.application.authenticator.oidc.OpenIDConnectAuthenticator;
+import org.wso2.carbon.identity.application.authenticator.oidc.model.OIDCStateInfo;
 import org.wso2.carbon.identity.application.common.model.ClaimMapping;
 import org.wso2.carbon.identity.application.common.model.IdentityProvider;
 import org.wso2.carbon.identity.application.common.model.LocalAndOutboundAuthenticationConfig;
@@ -52,6 +54,7 @@ import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -72,6 +75,7 @@ import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAu
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.EQUAL_SIGN;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.IDP_PARAMETER;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.SESSION_DATA_KEY_PARAM;
+import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.SUPER_TENANT_DOMAIN;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.TENANT_DOMAIN_PARAM;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.TENANT_IDENTIFIER;
 import static org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticatorConstants.TENANT_SELECTION_URL_PROP;
@@ -178,9 +182,15 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
             LogoutFailedException {
 
         if (context.isLogoutRequest()) {
+            String idTokenHint = this.getIdTokenHint(context);
+            String tenantDomain = extractTenantDomainFromIdTokenHintSub(idTokenHint);
+            // Fallback to super tenant
+            if (StringUtils.isBlank(tenantDomain)) {
+                tenantDomain = SUPER_TENANT_DOMAIN;
+            }
             String serverBaseURL = getServerBaseURL();
             context.getAuthenticatorProperties().put(IdentityApplicationConstants.OAuth2.CALLBACK_URL, serverBaseURL + "/commonauth");
-            context.getAuthenticatorProperties().put(OIDC_LOGOUT_URL, serverBaseURL + "/oidc/logout");
+            context.getAuthenticatorProperties().put(OIDC_LOGOUT_URL, serverBaseURL + "/t/" + tenantDomain + "/oidc/logout");
             return super.process(request, response, context);
         }
 
@@ -257,22 +267,10 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
                     user.setUserName(userName);
                     user.setTenantDomain(userSelectedTenantDomain);
                     user.setUserStoreDomain(userStoreDomain);
-                    
-                    // Update the authenticated subject identifier to include tenant domain
-                    String fullyQualifiedUsername = userName;
-                    if (!fullyQualifiedUsername.contains("@")) {
-                        fullyQualifiedUsername = userName + "@" + userSelectedTenantDomain;
-                    }
-                    user.setAuthenticatedSubjectIdentifier(fullyQualifiedUsername);
+                    user.setAuthenticatedSubjectIdentifier(userName);
                     
                     // Set the updated user back into the context
                     context.setSubject(user);
-                    
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Updated AuthenticatedUser: username=" + userName + ", tenantDomain=" + 
-                                userSelectedTenantDomain + ", userStoreDomain=" + userStoreDomain + 
-                                ", subjectIdentifier=" + fullyQualifiedUsername);
-                    }
                 } else {
                     LOG.warn("User selected tenant domain not found in context. User may be authenticated in wrong tenant.");
                 }
@@ -282,6 +280,42 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
         } catch (Exception e) {
             throw new AuthenticationFailedException("Error while resolving service provider credentials.", e);
         }
+    }
+
+    @Override
+    protected void initiateLogoutRequest(HttpServletRequest request, HttpServletResponse response, AuthenticationContext context) throws LogoutFailedException {
+        if (this.isLogoutEnabled(context)) {
+            String logoutUrl = this.getLogoutUrl(context.getAuthenticatorProperties());
+            Map<String, String> paramMap = new HashMap();
+            String idTokenHint = this.getIdTokenHint(context);
+            if (StringUtils.isNotBlank(idTokenHint)) {
+                paramMap.put("id_token_hint", idTokenHint);
+            }
+
+            String callback = this.getCallbackUrl(context.getAuthenticatorProperties());
+            paramMap.put("post_logout_redirect_uri", callback);
+            String sessionID = this.getStateParameter(context, context.getAuthenticatorProperties());
+            paramMap.put("state", sessionID);
+
+            AuthenticatedUser authenticatedUser = context.getSubject();
+            if (authenticatedUser != null && StringUtils.isNotBlank(authenticatedUser.getAuthenticatedSubjectIdentifier())) {
+                String userSelectedTenantDomain = authenticatedUser.
+                        getAuthenticatedSubjectIdentifier().split("@")[1];
+                paramMap.put("tenantDomain", userSelectedTenantDomain);
+            }
+
+            try {
+                logoutUrl = FrameworkUtils.buildURLWithQueryParams(logoutUrl, paramMap);
+                response.sendRedirect(logoutUrl);
+            } catch (IOException e) {
+                String idpName = context.getExternalIdP().getName();
+                String tenantDomain = context.getTenantDomain();
+                throw new LogoutFailedException("Error occurred while initiating the logout request to IdP: " + idpName + " of tenantDomain: " + tenantDomain, e);
+            }
+        } else {
+            super.initiateLogoutRequest(request, response, context);
+        }
+
     }
 
     private ClaimMetadataManagementService getClaimManager() {
@@ -353,9 +387,9 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
 
         authenticatorProperties.put(CLIENT_ID, resolvedClientId);
         authenticatorProperties.put(CLIENT_SECRET, resolvedClientSecret);
-        authenticatorProperties.put(OAUTH2_AUTHZ_URL, serverBaseURL + "/oauth2/authorize");
-        authenticatorProperties.put(OAUTH2_TOKEN_URL, serverBaseURL + "/oauth2/token");
-        authenticatorProperties.put(USERINFO_URL, serverBaseURL + "/oauth2/userinfo");
+        authenticatorProperties.put(OAUTH2_AUTHZ_URL, serverBaseURL + "/t/" + tenantDomain + "/oauth2/authorize");
+        authenticatorProperties.put(OAUTH2_TOKEN_URL, serverBaseURL + "/t/" + tenantDomain + "/oauth2/token");
+        authenticatorProperties.put(USERINFO_URL, serverBaseURL +"/t/" + tenantDomain + "/oauth2/userinfo");
         authenticatorProperties.put(FrameworkConstants.QUERY_PARAMS, getQueryParams(context,
                 claimMappings, tenantDomain));
         authenticatorProperties.put("Scopes", getScopes(context));
@@ -411,7 +445,7 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
     private String resolveCallbackUrl(AuthenticationContext context) {
 
         String serverBaseURL = getServerBaseURL();
-        String defaultCallbackUrl = serverBaseURL + "/commonauth";
+        String defaultCallbackUrl = serverBaseURL + "/t/asd.com" + "/commonauth";
 
         try {
             String queryParams = context.getQueryParams();
@@ -662,6 +696,47 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
         } catch (IdentityProviderManagementException e) {
             LOG.error("Error while retrieving IDP '" + idpName + "' for tenant: " + tenantDomain, e);
             return new ClaimMapping[0];
+        }
+    }
+
+    // This method is repeating in OpenIDConnectAuthenticator, consider refactoring to a common utility if needed.
+    private boolean isLogoutEnabled(AuthenticationContext context) {
+        String logoutUrl = this.getLogoutUrl(context.getAuthenticatorProperties());
+        return StringUtils.isNotBlank(logoutUrl);
+    }
+
+    // This method is repeating in OpenIDConnectAuthenticator, consider refactoring to a common utility if needed.
+    private String getIdTokenHint(AuthenticationContext context) {
+        return context.getStateInfo() instanceof OIDCStateInfo ? ((OIDCStateInfo)context.getStateInfo()).getIdTokenHint() : null;
+    }
+
+    // This method is repeating in OpenIDConnectAuthenticator, consider refactoring to a common utility if needed.
+    private String getStateParameter(AuthenticationContext context, Map<String, String> authenticatorProperties) {
+        String state = context.getContextIdentifier() + "," + "OIDC";
+        return this.getState(state, authenticatorProperties);
+    }
+
+    private String extractTenantDomainFromIdTokenHintSub(String idTokenHint) {
+
+        if (StringUtils.isBlank(idTokenHint)) {
+            return null;
+        }
+        try {
+            String[] tokenParts = idTokenHint.split("\\.");
+            if (tokenParts.length < 2) {
+                return null;
+            }
+            String payload = new String(Base64.getDecoder().decode(tokenParts[1]));
+            JSONObject payloadJson = new JSONObject(payload);
+            String tenantedQualifiedUsername = payloadJson.optString("sub", null);
+            if (StringUtils.isBlank(tenantedQualifiedUsername) || !tenantedQualifiedUsername.contains("@")) {
+                return null;
+            }
+            String[] parts = tenantedQualifiedUsername.split("@");
+            return parts[parts.length - 1];
+        } catch (Exception e) {
+            LOG.error("Error extracting tenant domain from ID token hint.", e);
+            return null;
         }
     }
 }

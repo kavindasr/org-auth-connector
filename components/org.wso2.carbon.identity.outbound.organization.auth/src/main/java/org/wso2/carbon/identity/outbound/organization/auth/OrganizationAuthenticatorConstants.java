@@ -35,6 +35,7 @@ public class OrganizationAuthenticatorConstants {
     
     // Context property to store the user-selected target tenant domain
     public static final String USER_SELECTED_TENANT_DOMAIN = "ORG_AUTH_USER_SELECTED_TENANT_DOMAIN";
+    public static final String SUPER_TENANT_DOMAIN = "carbon.super";
 
     // Authenticator configuration property keys.
     public static final String COMMON_SP_NAME = "CommonSPName";
