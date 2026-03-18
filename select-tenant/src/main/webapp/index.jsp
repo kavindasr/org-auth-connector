@@ -36,6 +36,7 @@
     int serverPort = request.getServerPort();
     String portStr = (serverPort == 80 && "http".equals(scheme)) ||
                      (serverPort == 443 && "https".equals(scheme)) ? "" : ":" + serverPort;
+    // Improve this logic using config file: EndpointConfig.properties
     String commonAuthUrl = scheme + "://" + serverName + portStr + "/commonauth";
 %>
 <!DOCTYPE html>

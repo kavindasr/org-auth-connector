@@ -28,10 +28,12 @@ import org.osgi.service.component.annotations.Reference;
 import org.osgi.service.component.annotations.ReferenceCardinality;
 import org.osgi.service.component.annotations.ReferencePolicy;
 import org.wso2.carbon.identity.application.authentication.framework.ApplicationAuthenticator;
+import org.wso2.carbon.identity.application.authentication.framework.handler.request.PostAuthenticationHandler;
 import org.wso2.carbon.identity.application.mgt.ApplicationManagementService;
 import org.wso2.carbon.identity.claim.metadata.mgt.ClaimMetadataManagementService;
 import org.wso2.carbon.identity.oauth.OAuthAdminServiceImpl;
 import org.wso2.carbon.identity.outbound.organization.auth.OrganizationAuthenticator;
+import org.wso2.carbon.identity.outbound.organization.auth.OrganizationJITProvisioningHandler;
 
 import java.util.Hashtable;
 
@@ -52,6 +54,13 @@ public class OrganizationAuthServiceComponent {
             Hashtable<String, String> props = new Hashtable<>();
             componentContext.getBundleContext().registerService(
                     ApplicationAuthenticator.class.getName(), organizationAuthenticator, props);
+
+            // Register the Organization JIT Provisioning Handler
+            OrganizationJITProvisioningHandler jitProvisioningHandler = new OrganizationJITProvisioningHandler();
+            Hashtable<String, String> jitHandlerProps = new Hashtable<>();
+            componentContext.getBundleContext().registerService(
+                    PostAuthenticationHandler.class.getName(), jitProvisioningHandler, jitHandlerProps);
+
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Organization Authenticator bundle is activated.");
             }
@@ -134,4 +143,3 @@ public class OrganizationAuthServiceComponent {
         LOG.debug("Unset the claim metadata management service.");
     }
 }
-

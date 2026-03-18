@@ -123,9 +123,10 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
     @Override
     protected void initiateAuthenticationRequest(HttpServletRequest request, HttpServletResponse response,
                                                  AuthenticationContext context) throws AuthenticationFailedException {
-
         try {
-            overrideTenantAuthenticatorProperties(context, true);
+            if (!SUPER_TENANT_DOMAIN.equals(context.getProperty(USER_SELECTED_TENANT_DOMAIN))) {
+                overrideTenantAuthenticatorProperties(context, true);
+            }
             super.initiateAuthenticationRequest(request, response, context);
         } catch (AuthenticationFailedException e) {
             throw e;
@@ -167,6 +168,10 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
                 "Enter tenant selection page URL (e.g., https://localhost:9443/select-tenant)");
         configProperties.add(tenantSelectionUrl);
 
+        for(Property property : super.getConfigurationProperties()) {
+            configProperties.add(property);
+        }
+
         return configProperties;
     }
 
@@ -189,8 +194,16 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
                 tenantDomain = SUPER_TENANT_DOMAIN;
             }
             String serverBaseURL = getServerBaseURL();
-            context.getAuthenticatorProperties().put(IdentityApplicationConstants.OAuth2.CALLBACK_URL, serverBaseURL + "/commonauth");
-            context.getAuthenticatorProperties().put(OIDC_LOGOUT_URL, serverBaseURL + "/t/" + tenantDomain + "/oidc/logout");
+            if (SUPER_TENANT_DOMAIN.equals(context.getProperty(USER_SELECTED_TENANT_DOMAIN))) {
+                context.getAuthenticatorProperties().put(IdentityApplicationConstants.OAuth2.CALLBACK_URL, serverBaseURL
+                        + "/commonauth");
+                context.getAuthenticatorProperties().put(OIDC_LOGOUT_URL, serverBaseURL + "/oidc/logout");
+            } else {
+                context.getAuthenticatorProperties().put(IdentityApplicationConstants.OAuth2.CALLBACK_URL, serverBaseURL
+                        + "/commonauth");
+                context.getAuthenticatorProperties().put(OIDC_LOGOUT_URL, serverBaseURL + "/t/"
+                        + tenantDomain + "/oidc/logout");
+            }
             return super.process(request, response, context);
         }
 
@@ -235,8 +248,13 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
                                                  AuthenticationContext context) throws AuthenticationFailedException {
 
         try {
-            overrideTenantAuthenticatorProperties(context, false);
-            super.processAuthenticationResponse(request, response, context);
+            if (SUPER_TENANT_DOMAIN.equals(context.getProperty(USER_SELECTED_TENANT_DOMAIN))) {
+                super.processAuthenticationResponse(request, response, context);
+                return;
+            } else {
+                overrideTenantAuthenticatorProperties(context, false);
+                super.processAuthenticationResponse(request, response, context);
+            }
             
             // Fix tenant domain and user details in the authenticated user object
             AuthenticatedUser user = context.getSubject();
