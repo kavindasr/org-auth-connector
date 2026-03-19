@@ -168,9 +168,15 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
                 "Enter tenant selection page URL (e.g., https://localhost:9443/select-tenant)");
         configProperties.add(tenantSelectionUrl);
 
-        for(Property property : super.getConfigurationProperties()) {
-            configProperties.add(property);
-        }
+        configProperties.addAll(super.getConfigurationProperties());
+
+        Property logoutEndpoint = new Property();
+        logoutEndpoint.setName(OIDC_LOGOUT_URL);
+        logoutEndpoint.setDisplayName("Logout Endpoint URL");
+        logoutEndpoint.setRequired(true);
+        logoutEndpoint.setDescription("Enter OpenID Connect logout endpoint URL value");
+        logoutEndpoint.setDisplayOrder(11);
+        configProperties.add(logoutEndpoint);
 
         return configProperties;
     }
@@ -194,11 +200,8 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
                 tenantDomain = SUPER_TENANT_DOMAIN;
             }
             String serverBaseURL = getServerBaseURL();
-            if (SUPER_TENANT_DOMAIN.equals(context.getProperty(USER_SELECTED_TENANT_DOMAIN))) {
-                context.getAuthenticatorProperties().put(IdentityApplicationConstants.OAuth2.CALLBACK_URL, serverBaseURL
-                        + "/commonauth");
-                context.getAuthenticatorProperties().put(OIDC_LOGOUT_URL, serverBaseURL + "/oidc/logout");
-            } else {
+            context.setProperty(USER_SELECTED_TENANT_DOMAIN, tenantDomain);
+            if (!SUPER_TENANT_DOMAIN.equals(context.getProperty(USER_SELECTED_TENANT_DOMAIN))) {
                 context.getAuthenticatorProperties().put(IdentityApplicationConstants.OAuth2.CALLBACK_URL, serverBaseURL
                         + "/commonauth");
                 context.getAuthenticatorProperties().put(OIDC_LOGOUT_URL, serverBaseURL + "/t/"
@@ -302,6 +305,10 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
 
     @Override
     protected void initiateLogoutRequest(HttpServletRequest request, HttpServletResponse response, AuthenticationContext context) throws LogoutFailedException {
+        if (SUPER_TENANT_DOMAIN.equals(context.getProperty(USER_SELECTED_TENANT_DOMAIN))) {
+            super.initiateLogoutRequest(request, response, context);
+            return;
+        }
         if (this.isLogoutEnabled(context)) {
             String logoutUrl = this.getLogoutUrl(context.getAuthenticatorProperties());
             Map<String, String> paramMap = new HashMap();
