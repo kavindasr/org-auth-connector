@@ -23,34 +23,34 @@ package org.wso2.carbon.identity.outbound.organization.auth;
  */
 public class OrganizationAuthenticatorConstants {
 
+    // Authenticator identification.
     public static final String AUTHENTICATOR_NAME = "orgAuthenticator";
     public static final String AUTHENTICATOR_FRIENDLY_NAME = "Organization Authenticator";
 
-    // Request parameter names.
+    // Tenant constants.
+    public static final String SUPER_TENANT_DOMAIN = "carbon.super";
     public static final String TENANT_DOMAIN_PARAM = "tenantDomain";
     public static final String TENANT_IDENTIFIER = "tenantIdentifier";
+    public static final String USER_SELECTED_TENANT_DOMAIN = "ORG_AUTH_USER_SELECTED_TENANT_DOMAIN";
+
+    // Request parameter names.
     public static final String SESSION_DATA_KEY_PARAM = "sessionDataKey";
     public static final String AUTHENTICATOR_PARAM = "authenticator";
     public static final String IDP_PARAMETER = "idp";
-    
-    // Context property to store the user-selected target tenant domain
-    public static final String USER_SELECTED_TENANT_DOMAIN = "ORG_AUTH_USER_SELECTED_TENANT_DOMAIN";
-    public static final String SUPER_TENANT_DOMAIN = "carbon.super";
 
     // Authenticator configuration property keys.
     public static final String COMMON_SP_NAME = "CommonSPName";
-    public static final String IS_BASE_URL_PROP = "ISBaseUrl";
     public static final String TENANT_SELECTION_URL_PROP = "TenantSelectionPageUrl";
-    
-    public static final String QUERY_PARAMS = "commonAuthQueryParams";
 
+    // OIDC constants.
+    public static final String USERINFO_URL = "UserInfoUrl";
+
+    // Common string constants.
     public static final String EQUAL_SIGN = "=";
     public static final String AMPERSAND_SIGN = "&";
 
-    // OIDC Authenticator Constants
-    public static final String USERINFO_URL = "UserInfoUrl";
-
     private OrganizationAuthenticatorConstants() {
+
     }
 
     /**
@@ -108,4 +108,3 @@ public class OrganizationAuthenticatorConstants {
         }
     }
 }
-

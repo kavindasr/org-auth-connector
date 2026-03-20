@@ -31,19 +31,11 @@ import org.wso2.carbon.identity.application.authentication.framework.util.Framew
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkUtils;
 import org.wso2.carbon.identity.application.authenticator.oidc.OpenIDConnectAuthenticator;
 import org.wso2.carbon.identity.application.authenticator.oidc.model.OIDCStateInfo;
-import org.wso2.carbon.identity.application.common.model.ClaimMapping;
-import org.wso2.carbon.identity.application.common.model.IdentityProvider;
-import org.wso2.carbon.identity.application.common.model.LocalAndOutboundAuthenticationConfig;
 import org.wso2.carbon.identity.application.common.model.Property;
-import org.wso2.carbon.identity.application.common.model.ServiceProvider;
 import org.wso2.carbon.identity.application.common.util.IdentityApplicationConstants;
 import org.wso2.carbon.identity.application.mgt.ApplicationManagementService;
-import org.wso2.carbon.identity.claim.metadata.mgt.ClaimMetadataManagementService;
-import org.wso2.carbon.identity.claim.metadata.mgt.exception.ClaimMetadataException;
 import org.wso2.carbon.identity.core.util.IdentityUtil;
 import org.wso2.carbon.identity.oauth.OAuthAdminServiceImpl;
-import org.wso2.carbon.idp.mgt.IdentityProviderManagementException;
-import org.wso2.carbon.idp.mgt.IdentityProviderManager;
 import org.wso2.carbon.identity.oauth.dto.OAuthConsumerAppDTO;
 import org.wso2.carbon.identity.outbound.organization.auth.internal.OrganizationAuthDataHolder;
 import org.wso2.carbon.identity.outbound.organization.auth.utils.TenantServiceProviderUtil;
@@ -51,7 +43,6 @@ import org.wso2.carbon.utils.multitenancy.MultitenantUtils;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
-import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
@@ -103,6 +94,10 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
     private static final String DYNAMIC_PARAMETER_LOOKUP_REGEX = "\\$\\{(\\w+)\\}";
     private static final String DYNAMIC_AUTH_PARAMS_LOOKUP_REGEX = "\\$authparam\\{(\\w+)\\}";
 
+    // =============================================
+    // Override public methods
+    // =============================================
+
     @Override
     public boolean canHandle(HttpServletRequest request) {
 
@@ -112,27 +107,6 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
         }
         // Handle the tenant selection response with the tenant identifier parameter.
         return StringUtils.isNotBlank(request.getParameter(TENANT_IDENTIFIER));
-    }
-
-    /**
-     * {@inheritDoc}
-     * <p>
-     * Resolves the tenant-specific OAuth2 credentials and endpoints before delegating
-     * to the super class to build and send the authorize redirect.
-     */
-    @Override
-    protected void initiateAuthenticationRequest(HttpServletRequest request, HttpServletResponse response,
-                                                 AuthenticationContext context) throws AuthenticationFailedException {
-        try {
-            if (!SUPER_TENANT_DOMAIN.equals(context.getProperty(USER_SELECTED_TENANT_DOMAIN))) {
-                overrideTenantAuthenticatorProperties(context, true);
-            }
-            super.initiateAuthenticationRequest(request, response, context);
-        } catch (AuthenticationFailedException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new AuthenticationFailedException("Error while initiating authentication request.", e);
-        }
     }
 
     @Override
@@ -231,6 +205,31 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
         }
     }
 
+    // =============================================
+    // Override protected methods
+    // =============================================
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * Resolves the tenant-specific OAuth2 credentials and endpoints before delegating
+     * to the super class to build and send the authorize redirect.
+     */
+    @Override
+    protected void initiateAuthenticationRequest(HttpServletRequest request, HttpServletResponse response,
+                                                 AuthenticationContext context) throws AuthenticationFailedException {
+        try {
+            if (!SUPER_TENANT_DOMAIN.equals(context.getProperty(USER_SELECTED_TENANT_DOMAIN))) {
+                overrideTenantAuthenticatorProperties(context);
+            }
+            super.initiateAuthenticationRequest(request, response, context);
+        } catch (AuthenticationFailedException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new AuthenticationFailedException("Error while initiating authentication request.", e);
+        }
+    }
+
     @Override
     protected String getScope(String scope, Map<String, String> authenticatorProperties) {
 
@@ -255,7 +254,7 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
                 super.processAuthenticationResponse(request, response, context);
                 return;
             } else {
-                overrideTenantAuthenticatorProperties(context, false);
+                overrideTenantAuthenticatorProperties(context);
                 super.processAuthenticationResponse(request, response, context);
             }
             
@@ -304,14 +303,16 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
     }
 
     @Override
-    protected void initiateLogoutRequest(HttpServletRequest request, HttpServletResponse response, AuthenticationContext context) throws LogoutFailedException {
+    protected void initiateLogoutRequest(HttpServletRequest request, HttpServletResponse response,
+                                         AuthenticationContext context) throws LogoutFailedException {
+
         if (SUPER_TENANT_DOMAIN.equals(context.getProperty(USER_SELECTED_TENANT_DOMAIN))) {
             super.initiateLogoutRequest(request, response, context);
             return;
         }
         if (this.isLogoutEnabled(context)) {
             String logoutUrl = this.getLogoutUrl(context.getAuthenticatorProperties());
-            Map<String, String> paramMap = new HashMap();
+            Map<String, String> paramMap = new HashMap<>();
             String idTokenHint = this.getIdTokenHint(context);
             if (StringUtils.isNotBlank(idTokenHint)) {
                 paramMap.put("id_token_hint", idTokenHint);
@@ -322,11 +323,26 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
             String sessionID = this.getStateParameter(context, context.getAuthenticatorProperties());
             paramMap.put("state", sessionID);
 
-            AuthenticatedUser authenticatedUser = context.getSubject();
-            if (authenticatedUser != null && StringUtils.isNotBlank(authenticatedUser.getAuthenticatedSubjectIdentifier())) {
-                String userSelectedTenantDomain = authenticatedUser.
-                        getAuthenticatedSubjectIdentifier().split("@")[1];
+            String userSelectedTenantDomain = null;
+            if (context.getProperty(USER_SELECTED_TENANT_DOMAIN) != null) {
+                userSelectedTenantDomain = (String) context.getProperty(USER_SELECTED_TENANT_DOMAIN);
+            } else {
+                AuthenticatedUser authenticatedUser = context.getSubject();
+                if (authenticatedUser != null
+                        && StringUtils.isNotBlank(authenticatedUser.getAuthenticatedSubjectIdentifier())) {
+                    String subjectIdentifier = authenticatedUser.getAuthenticatedSubjectIdentifier();
+                    String[] parts = subjectIdentifier.split("@");
+                    if (parts.length > 1) {
+                        userSelectedTenantDomain = parts[parts.length - 1];
+                    }
+                }
+            }
+
+            if (StringUtils.isNotBlank(userSelectedTenantDomain)) {
                 paramMap.put("tenantDomain", userSelectedTenantDomain);
+            } else {
+                LOG.warn("Unable to extract tenant domain from authenticated user." +
+                        " post_logout_redirect_uri will be used without tenantDomain parameter.");
             }
 
             try {
@@ -340,13 +356,11 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
         } else {
             super.initiateLogoutRequest(request, response, context);
         }
-
     }
 
-    private ClaimMetadataManagementService getClaimManager() {
-
-        return OrganizationAuthDataHolder.getInstance().getClaimMetadataManagementService();
-    }
+    // =============================================
+    // Private helper methods - Tenant and Authentication
+    // =============================================
 
     /**
      * Redirects the user to the tenant selection page, passing the session data key,
@@ -385,7 +399,7 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
      * @param context The current authentication context.
      * @throws Exception If the service provider or OAuth app cannot be resolved.
      */
-    private void overrideTenantAuthenticatorProperties(AuthenticationContext context, Boolean isRequestFlow) throws Exception {
+    private void overrideTenantAuthenticatorProperties(AuthenticationContext context) throws Exception {
 
         Map<String, String> authenticatorProperties = context.getAuthenticatorProperties();
         ApplicationManagementService appMgtService =
@@ -399,14 +413,9 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
         }
         String spName = authenticatorProperties.get(COMMON_SP_NAME);
 
-        ServiceProvider sharedApplication = TenantServiceProviderUtil.getServiceProvider(appMgtService, tenantDomain, spName);
-
         String resolvedClientId = TenantServiceProviderUtil.resolveClientId(appMgtService, tenantDomain, spName);
         OAuthConsumerAppDTO oauthApp = getOAuthAdminService().getOAuthApplicationData(resolvedClientId);
         String resolvedClientSecret = oauthApp.getOauthConsumerSecret();
-
-        // Get claim mappings from the federated IDP configuration instead of SP's claim config
-        ClaimMapping[] claimMappings = getFederatedIdpClaimMappings(sharedApplication, tenantDomain);
 
         String serverBaseURL = getServerBaseURL();
 
@@ -414,13 +423,11 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
         authenticatorProperties.put(CLIENT_SECRET, resolvedClientSecret);
         authenticatorProperties.put(OAUTH2_AUTHZ_URL, serverBaseURL + "/t/" + tenantDomain + "/oauth2/authorize");
         authenticatorProperties.put(OAUTH2_TOKEN_URL, serverBaseURL + "/t/" + tenantDomain + "/oauth2/token");
-        authenticatorProperties.put(USERINFO_URL, serverBaseURL +"/t/" + tenantDomain + "/oauth2/userinfo");
-        authenticatorProperties.put(FrameworkConstants.QUERY_PARAMS, getQueryParams(context,
-                claimMappings, tenantDomain));
+        authenticatorProperties.put(USERINFO_URL, serverBaseURL + "/t/" + tenantDomain + "/oauth2/userinfo");
+        authenticatorProperties.put(FrameworkConstants.QUERY_PARAMS, getQueryParams(context));
         authenticatorProperties.put("Scopes", getScopes(context));
         // Dynamically resolve the callback URL based on the original redirect_uri (supports publisher/devportal/admin)
         authenticatorProperties.put("callbackUrl", resolveCallbackUrl(context));
-
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("Resolved client ID '" + resolvedClientId + "' for SP '" + spName
@@ -428,15 +435,9 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
         }
     }
 
-    /**
-     * Retrieves the {@link OAuthAdminServiceImpl} from the data holder.
-     *
-     * @return The OAuthAdminServiceImpl instance.
-     */
-    private OAuthAdminServiceImpl getOAuthAdminService() {
-
-        return OrganizationAuthDataHolder.getInstance().getOAuthAdminService();
-    }
+    // =============================================
+    // Private helper methods - URL and Query Params
+    // =============================================
 
     /**
      * Dynamically resolves the server base URL (e.g., https://localhost:9443) from
@@ -511,8 +512,8 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
 
     private String getScopes(AuthenticationContext context) {
 
-        String queryPrams = context.getQueryParams();
-        String scopeParams = Arrays.stream(queryPrams.split("&"))
+        String queryParams = context.getQueryParams();
+        String scopeParams = Arrays.stream(queryParams.split("&"))
                 .filter(param -> param.startsWith("scope="))
                 .findFirst()
                 .orElse(null);
@@ -534,14 +535,9 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
      * Constructs the query parameters string to be included in an authorization request.
      *
      * @param context       The authentication context.
-     * @param claimMappings An array of claim mappings for attribute extraction.
-     * @param tenantDomain  Tenant domain.
-     * @return Query parameters string .
-     * @throws UnsupportedEncodingException on errors when encoding.
-     * @throws ClaimMetadataException       on errors when getting claim query param.
+     * @return Query parameters string.
      */
-    private String getQueryParams(AuthenticationContext context, ClaimMapping[] claimMappings, String tenantDomain)
-            throws UnsupportedEncodingException, ClaimMetadataException {
+    private String getQueryParams(AuthenticationContext context) {
 
         StringBuilder paramBuilder = new StringBuilder();
 
@@ -617,126 +613,36 @@ public class OrganizationAuthenticator extends OpenIDConnectAuthenticator {
         return queryString;
     }
 
-
-    private void addQueryParam(StringBuilder builder, String query, String param) throws UnsupportedEncodingException {
-
-        builder.append(AMPERSAND_SIGN).append(query).append(EQUAL_SIGN).append(urlEncode(param));
-    }
-
-    private String urlEncode(String value) throws UnsupportedEncodingException {
-
-        return URLEncoder.encode(value, FrameworkUtils.UTF_8);
-    }
+    // =============================================
+    // Private helper methods - Service and Token
+    // =============================================
 
     /**
-     * Retrieves claim mappings from the federated IDP configured in the Service Provider's
-     * Local and Outbound Authentication Configuration.
-     * <p>
-     * When the SP is configured with a federated authenticator, the claim mappings are defined
-     * at the IDP level rather than at the SP level. This method:
-     * 1. Extracts the IDP name from the SP's authentication configuration
-     * 2. Fetches the full IDP configuration using IdentityProviderManager
-     * 3. Returns the claim mappings from the complete IDP configuration
+     * Retrieves the {@link OAuthAdminServiceImpl} from the data holder.
      *
-     * @param serviceProvider The service provider configured with federated authentication.
-     * @param tenantDomain    The tenant domain to fetch the IDP from.
-     * @return Array of claim mappings from the federated IDP, or an empty array if none found.
+     * @return The OAuthAdminServiceImpl instance.
      */
-    private ClaimMapping[] getFederatedIdpClaimMappings(ServiceProvider serviceProvider, String tenantDomain) {
+    private OAuthAdminServiceImpl getOAuthAdminService() {
 
-        if (serviceProvider == null) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Service provider is null, returning empty claim mappings.");
-            }
-            return new ClaimMapping[0];
-        }
-
-        LocalAndOutboundAuthenticationConfig authConfig = serviceProvider.getLocalAndOutBoundAuthenticationConfig();
-        if (authConfig == null) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("LocalAndOutboundAuthenticationConfig is null, returning empty claim mappings.");
-            }
-            return new ClaimMapping[0];
-        }
-
-        // Get the authentication steps configured for this SP
-        org.wso2.carbon.identity.application.common.model.AuthenticationStep[] authSteps =
-                authConfig.getAuthenticationSteps();
-        if (authSteps == null || authSteps.length == 0) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("No authentication steps found in authentication config, returning empty claim mappings.");
-            }
-            return new ClaimMapping[0];
-        }
-
-        // Get the first authentication step's federated authenticators
-        org.wso2.carbon.identity.application.common.model.AuthenticationStep firstStep = authSteps[0];
-        IdentityProvider[] stepIdps = firstStep.getFederatedIdentityProviders();
-        if (stepIdps == null || stepIdps.length == 0) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("No federated IDPs found in the first authentication step, returning empty claim mappings.");
-            }
-            return new ClaimMapping[0];
-        }
-
-        // Get the IDP name from the basic IDP reference
-        IdentityProvider basicIdpRef = stepIdps[0];
-        String idpName = basicIdpRef.getIdentityProviderName();
-
-        if (StringUtils.isBlank(idpName)) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Federated IDP name is blank, returning empty claim mappings.");
-            }
-            return new ClaimMapping[0];
-        }
-
-        // Fetch the complete IDP configuration using IdentityProviderManager
-        try {
-            IdentityProviderManager idpManager = IdentityProviderManager.getInstance();
-            IdentityProvider fullIdp = idpManager.getIdPByName(idpName, tenantDomain);
-
-            if (fullIdp == null) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Could not retrieve full IDP configuration for: " + idpName +
-                            " in tenant: " + tenantDomain);
-                }
-                return new ClaimMapping[0];
-            }
-
-            if (fullIdp.getClaimConfig() != null) {
-                ClaimMapping[] claimMappings = fullIdp.getClaimConfig().getClaimMappings();
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Retrieved " + (claimMappings != null ? claimMappings.length : 0) +
-                            " claim mappings from federated IDP '" + idpName +
-                            "' in tenant: " + tenantDomain);
-                }
-                return claimMappings != null ? claimMappings : new ClaimMapping[0];
-            }
-
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Federated IDP '" + idpName + "' claim config is null, returning empty claim mappings.");
-            }
-            return new ClaimMapping[0];
-
-        } catch (IdentityProviderManagementException e) {
-            LOG.error("Error while retrieving IDP '" + idpName + "' for tenant: " + tenantDomain, e);
-            return new ClaimMapping[0];
-        }
+        return OrganizationAuthDataHolder.getInstance().getOAuthAdminService();
     }
 
     // This method is repeating in OpenIDConnectAuthenticator, consider refactoring to a common utility if needed.
     private boolean isLogoutEnabled(AuthenticationContext context) {
+
         String logoutUrl = this.getLogoutUrl(context.getAuthenticatorProperties());
         return StringUtils.isNotBlank(logoutUrl);
     }
 
     // This method is repeating in OpenIDConnectAuthenticator, consider refactoring to a common utility if needed.
     private String getIdTokenHint(AuthenticationContext context) {
-        return context.getStateInfo() instanceof OIDCStateInfo ? ((OIDCStateInfo)context.getStateInfo()).getIdTokenHint() : null;
+
+        return context.getStateInfo() instanceof OIDCStateInfo ? ((OIDCStateInfo) context.getStateInfo()).getIdTokenHint() : null;
     }
 
     // This method is repeating in OpenIDConnectAuthenticator, consider refactoring to a common utility if needed.
     private String getStateParameter(AuthenticationContext context, Map<String, String> authenticatorProperties) {
+
         String state = context.getContextIdentifier() + "," + "OIDC";
         return this.getState(state, authenticatorProperties);
     }
