@@ -25,7 +25,10 @@ import org.wso2.carbon.identity.application.authentication.framework.exception.P
 import org.wso2.carbon.identity.application.authentication.framework.handler.request.PostAuthenticationHandler;
 import org.wso2.carbon.identity.application.authentication.framework.handler.request.PostAuthnHandlerFlowStatus;
 import org.wso2.carbon.identity.application.authentication.framework.handler.request.impl.JITProvisioningPostAuthenticationHandler;
+import org.wso2.carbon.identity.application.authentication.framework.model.AuthenticatedIdPData;
+import org.wso2.carbon.identity.application.authentication.framework.model.AuthenticatedUser;
 
+import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -61,7 +64,7 @@ public class OrganizationJITProvisioningHandler extends JITProvisioningPostAuthe
         // Execute JIT provisioning only if:
         // 1. USER_SELECTED_TENANT_DOMAIN property is not set (null or blank), OR
         // 2. USER_SELECTED_TENANT_DOMAIN equals "carbon.super"
-        if (userSelectedTenantDomain == null || SUPER_TENANT_DOMAIN.equals(userSelectedTenantDomain)) {
+        if ((userSelectedTenantDomain == null && shouldProvision(context)) || SUPER_TENANT_DOMAIN.equals(userSelectedTenantDomain)) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("User selected tenant domain is '" + userSelectedTenantDomain +
                         "'. Proceeding with JIT provisioning.");
@@ -83,6 +86,37 @@ public class OrganizationJITProvisioningHandler extends JITProvisioningPostAuthe
     public String getName() {
 
         return "OrganizationJITProvisioningHandler";
+    }
+
+    // This method covered the scenario where the user is JitProvisioned outside the Organization Authenticator flow.
+    private boolean shouldProvision(AuthenticationContext context) {
+
+        String tenantDomain = context.getTenantDomain();
+        Map<String, AuthenticatedIdPData> currentAuthenticatedIdPs = context.getCurrentAuthenticatedIdPs();
+        for(AuthenticatedIdPData idpData : currentAuthenticatedIdPs.values()) {
+            AuthenticatedUser authenticatedUser = idpData.getUser();
+            String tenantDomainFromUser = extractTenantDomainFromAuthenticatedUser(authenticatedUser);
+            if (tenantDomainFromUser == null) {
+                tenantDomainFromUser = authenticatedUser.getTenantDomain();
+            }
+            if (tenantDomainFromUser != null && tenantDomainFromUser.equals(tenantDomain)) {
+                return true;
+            }
+        }
+        return false;
+
+    }
+
+    private String extractTenantDomainFromAuthenticatedUser(AuthenticatedUser user) {
+
+        if (user == null) {
+            return null;
+        }
+        String userName = user.getUserName();
+        if (userName != null && userName.contains("@")) {
+            return userName.substring(userName.indexOf("@") + 1);
+        }
+        return null;
     }
 }
 
